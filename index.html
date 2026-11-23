@@ -174,6 +174,13 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
 a.btn.wa{color:var(--ok);border-color:var(--ok)}
 a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
 .gear{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 9px;font-weight:600;font-size:13px}
+.gate{position:fixed;inset:0;z-index:30;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:16px}
+.gate form{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(380px,100%);display:flex;flex-direction:column;gap:12px}
+.gate h1{font-size:22px}
+.gate p{margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.gate label{font-size:12px;font-weight:600;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.gate input{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 10px;width:100%}
+.gate .lnk{border:0;background:transparent;color:var(--accent);font-weight:600;padding:4px;align-self:flex-start}
 .toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:10px;font-weight:600;font-size:14px;z-index:20;max-width:calc(100vw - 32px)}
 .toast:empty{display:none}
 
@@ -206,6 +213,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
   </nav>
   <span class="status" id="status" role="status">Carregando…</span>
   <button class="gear" id="cfgBtn" type="button">Ajustes</button>
+  <button class="gear" id="outBtn" type="button" hidden>Sair</button>
 </header>
 <div id="banners"></div>
 <main>
@@ -254,9 +262,25 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
     <div class="list" id="cList"></div>
   </section>
 </main>
+<div class="gate" id="gate" hidden>
+  <form id="gateForm" novalidate>
+    <h1>Agenda Solidária</h1>
+    <p id="gateMsg">Entre com o e-mail e a senha cadastrados pela administração.</p>
+    <label id="gEmailL">E-mail<input type="email" id="gEmail" autocomplete="username" required></label>
+    <label id="gPassL">Senha<input type="password" id="gPass" autocomplete="current-password" required></label>
+    <p id="gateErr" role="alert" style="color:var(--bad)" hidden></p>
+    <button class="btn pri" type="submit" id="gateGo">Entrar</button>
+    <button class="lnk" type="button" id="gateReset">Esqueci a senha</button>
+    <button class="lnk" type="button" id="gateOut" hidden>Sair desta conta</button>
+  </form>
+</div>
 <dialog id="dlg"><form class="dlg" id="dlgForm" novalidate></form></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script>
 (function(){
 'use strict';
@@ -302,7 +326,7 @@ const store={
     S[col].set(id,Object.assign({},data,{id}));render();
     if(!db)return true;
     try{await db.collection(col).doc(id).set(data);return true;}
-    catch(e){toast(e&&e.code==='invalid_argument'?'Você não tem permissão para alterar os dados.':'Não foi possível salvar. Tente de novo.');return false;}
+    catch(e){toast(e&&e.code==='permission-denied'?'Seu perfil não tem permissão para alterar isto.':'Não foi possível salvar. Tente de novo.');return false;}
   },
   async del(col,id){
     S[col].delete(id);render();
@@ -319,22 +343,53 @@ function subscribeAg(){
   if(agUnsub)agUnsub();const[a,b]=monthRange(ui.date);
   agUnsub=db.collection('agendamentos').where('data','>=',a).where('data','<=',b).onSnapshot(s=>{loaded.a=true;fill('agendamentos',s);},onDbErr);
 }
-function onDbErr(e){setStatus(e&&e.code==='revoked'?'Sem acesso aos dados':'Erro ao ler os dados');}
+function onDbErr(e){setStatus(e&&e.code==='permission-denied'?'Sem acesso aos dados':'Erro ao ler os dados');}
 function setStatus(t){$('status').textContent=t;}
 
-async function init(){
+let papel='';
+const PAPEIS={admin:'Administração',clinico:'Equipe clínica',recepcao:'Recepção'};
+function gate(mode,msg){
+  const g=$('gate');g.hidden=mode==='off';if(mode==='off')return;
+  const login=mode==='login';
+  $('gEmailL').hidden=$('gPassL').hidden=$('gateGo').hidden=$('gateReset').hidden=!login;$('gateOut').hidden=login;
+  $('gateMsg').textContent=msg||'Entre com o e-mail e a senha cadastrados pela administração.';$('gateErr').hidden=true;
+}
+function gateErr(t){const e=$('gateErr');e.textContent=t;e.hidden=false;}
+const AUTH_MSG={'auth/invalid-credential':'E-mail ou senha incorretos.','auth/wrong-password':'E-mail ou senha incorretos.','auth/user-not-found':'E-mail ou senha incorretos.',
+  'auth/invalid-email':'E-mail inválido.','auth/too-many-requests':'Muitas tentativas. Aguarde alguns minutos.','auth/network-request-failed':'Sem conexão com a internet.','auth/user-disabled':'Esta conta foi desativada.'};
+function init(){
   render();
-  try{db=(window.claude&&window.claude.use)?await window.claude.use('db'):null;}catch(e){db=null;}
-  if(!db){storeMode='mem';canEdit=true;setStatus('Demonstração');loadExamples();renderBanners();return;}
-  storeMode='db';setStatus('Sincronizando…');
-  try{const user=await window.claude.use('user');if(user){canEdit=(await user.canEdit())||false;uid=(await user.id())||'';}}catch(e){}
-  db.doc('config/geral').onSnapshot(s=>{S.config=s.exists?Object.assign({},s.data()):{};},()=>{});
-  const slow=setTimeout(()=>setStatus('Os dados ainda não chegaram. Verifique a conexão.'),10000);
-  const ok=()=>{if(loaded.b&&loaded.p&&loaded.a){clearTimeout(slow);setStatus('Dados salvos e compartilhados');}};
-  db.collection('beneficiarios').onSnapshot(s=>{loaded.b=true;fill('beneficiarios',s);ok();},onDbErr);
-  db.collection('profissionais').onSnapshot(s=>{loaded.p=true;fill('profissionais',s);ok();},onDbErr);
-  subscribeAg();
-  const iv=setInterval(()=>{ok();if(loaded.a)clearInterval(iv);},400);
+  const cfg=window.FIREBASE_CONFIG;
+  if(!window.firebase||!cfg||!cfg.apiKey||/COLE_AQUI/.test(cfg.apiKey)){storeMode='mem';canEdit=true;setStatus('Demonstração');loadExamples();renderBanners();return;}
+  firebase.initializeApp(cfg);
+  const auth=firebase.auth(),fs=firebase.firestore();
+  let started=false;
+  $('gateForm').addEventListener('submit',async e=>{e.preventDefault();$('gateErr').hidden=true;$('gateGo').disabled=true;
+    try{await auth.signInWithEmailAndPassword($('gEmail').value.trim(),$('gPass').value);}catch(err){gateErr(AUTH_MSG[err.code]||'Não foi possível entrar. Tente de novo.');}
+    $('gateGo').disabled=false;});
+  $('gateReset').onclick=async()=>{const m=$('gEmail').value.trim();if(!m)return gateErr('Digite seu e-mail acima e clique de novo.');
+    try{await auth.sendPasswordResetEmail(m);}catch(err){}
+    $('gateMsg').textContent='Se o e-mail estiver cadastrado, você vai receber um link para criar uma nova senha.';};
+  const sair=()=>auth.signOut().then(()=>location.reload());
+  $('gateOut').onclick=sair;$('outBtn').onclick=sair;
+  setStatus('Conectando…');
+  auth.onAuthStateChanged(async u=>{
+    if(!u){if(started){location.reload();return;}gate('login');setStatus('');return;}
+    uid=u.uid;let me=null;
+    try{me=await fs.doc('usuarios/'+u.uid).get();}catch(e){}
+    if(!me||!me.exists||!PAPEIS[me.data().papel]){gate('pending','Sua conta ('+u.email+') ainda não foi liberada. Peça à administração para liberar o acesso informando este código: '+u.uid);return;}
+    papel=me.data().papel;canEdit=papel==='admin'||papel==='clinico';
+    gate('off');$('outBtn').hidden=false;
+    if(started)return;started=true;db=fs;storeMode='db';setStatus('Sincronizando…');
+    const done=()=>setStatus(PAPEIS[papel]+' · '+(u.email||''));
+    const slow=setTimeout(()=>setStatus('Os dados ainda não chegaram. Verifique a conexão.'),10000);
+    const ok=()=>{if(loaded.b&&loaded.p&&loaded.a){clearTimeout(slow);done();}};
+    db.doc('config/geral').onSnapshot(s=>{S.config=s.exists?Object.assign({},s.data()):{};},()=>{});
+    db.collection('beneficiarios').onSnapshot(s=>{loaded.b=true;fill('beneficiarios',s);ok();},onDbErr);
+    db.collection('profissionais').onSnapshot(s=>{loaded.p=true;fill('profissionais',s);ok();},onDbErr);
+    subscribeAg();
+    const iv=setInterval(()=>{ok();if(loaded.a)clearInterval(iv);},400);
+  });
 }
 
 /* ---------- dados de exemplo (marcados, removíveis) ---------- */
@@ -361,7 +416,7 @@ async function removeExamples(){
 function hasExamples(){for(const c of['beneficiarios','profissionais','agendamentos'])for(const x of S[c].values())if(x.exemplo)return true;return false;}
 function renderBanners(){
   const box=$('banners');box.replaceChildren();
-  if(storeMode==='mem')box.append(el('div',{class:'banner'},'Modo demonstração: o banco de dados não está disponível nesta visualização, então nada do que você fizer aqui fica salvo.'));
+  if(storeMode==='mem')box.append(el('div',{class:'banner'},'Modo demonstração: o Firebase ainda não foi configurado (arquivo firebase-config.js), então nada do que você fizer aqui fica salvo.'));
   else if(hasExamples())box.append(el('div',{class:'banner'},'Há registros de exemplo misturados aos dados.',el('button',{type:'button',onclick:removeExamples},'Remover exemplos')));
 }
 
@@ -725,7 +780,7 @@ function openBenef(b,startTab,ctxAg){
     drawPront();
   }else{tabBtn.hist.hidden=true;}
   function drawPront(){
-    if(!canEdit){pPront.replaceChildren(el('div',{class:'msg',text:'O prontuário só aparece para a equipe clínica: pessoas com nível Editor neste sistema. A recepção (nível Colaborador) não tem acesso às anotações.'}));return;}
+    if(!canEdit){pPront.replaceChildren(el('div',{class:'msg',text:'O prontuário só aparece para a equipe clínica e a administração. O perfil Recepção não tem acesso às anotações.'}));return;}
     const meds=sortedProfs().filter(isMed);
     const who=sel('prProf',[['','Escolha o médico…']].concat(meds.map(p=>[p.id,p.nome+(p.especialidade?' · '+p.especialidade:'')])),ctxAg&&meds.some(p=>p.id===ctxAg.profissionalId)?ctxAg.profissionalId:'');
     const txt=el('textarea',{id:'prTxt',rows:5,placeholder:'Queixa, exame, conduta, prescrição, retorno…'});
@@ -774,7 +829,7 @@ function openCfg(){
     [el('button',{type:'button',class:'btn',onclick:()=>{msg.value=MSG_PADRAO;}},'Restaurar texto'),el('span',{class:'sp'}),el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Cancelar'),el('button',{type:'submit',class:'btn pri'},'Salvar')],
     async()=>{if(!msg.value.includes('{horarios}'))return showErr('A mensagem precisa conter {horarios}.');
       S.config={ong:ong.value.trim(),msg:msg.value};dlg.close();
-      if(db)try{await db.doc('config/geral').set(S.config);}catch(e){toast('Não foi possível salvar os ajustes.');return;}
+      if(db)try{await db.doc('config/geral').set(S.config);}catch(e){toast(e&&e.code==='permission-denied'?'Só a administração pode mudar os ajustes.':'Não foi possível salvar os ajustes.');return;}
       toast('Ajustes salvos.');});
 }
 
