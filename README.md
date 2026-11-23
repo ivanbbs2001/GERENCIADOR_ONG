@@ -6,7 +6,7 @@ Agenda de atendimentos e entrega de cestas básicas para ONG.
 
 - **Agenda** por dia (uma coluna por profissional, mais a coluna de cestas) e por semana. Clique em um horário vago para agendar; arraste para mudar horário, profissional ou dia; puxe a borda inferior para mudar a duração.
 - **Beneficiários**: cadastro, histórico de atendimentos e cestas, taxa de não comparecimento e prontuário (apontamentos médicos).
-- **Profissionais**: especialidade, registro, dias de atendimento, duração padrão (15 min para médicos, 30 min para os demais).
+- **Profissionais**: especialidade, registro, dias de atendimento, duração padrão (30 min, ajustável por profissional).
 - **Cestas**: entregas do mês, com marcação de entregue.
 - **WhatsApp**: link `wa.me` com os horários da semana do beneficiário. Texto editável em Ajustes.
 

@@ -326,7 +326,7 @@ const ESPECIALIDADES=['Clínica geral','Pediatria','Ginecologia','Cardiologia','
 const MED_ESP=['clinica geral','pediatria','ginecologia','cardiologia','dermatologia','oftalmologia','ortopedia','psiquiatria','geriatria','neurologia','urologia','endocrinologia','otorrinolaringologia','gastroenterologia','medicina de familia'];
 const inferMed=(esp,reg)=>/^\s*crm/i.test(reg||'')||MED_ESP.includes(norm(esp).trim());
 const isMed=p=>!!p&&(typeof p.medico==='boolean'?p.medico:inferMed(p.especialidade,p.registro));
-const durPadrao=p=>p?(Number(p.duracaoPadrao)||(isMed(p)?15:30)):30;
+const durPadrao=p=>p?(Number(p.duracaoPadrao)||30):30;
 const MSG_PADRAO='Olá, {nome}! Aqui é da {ong}. Seus horários nesta semana:\n{horarios}\nSe não puder comparecer, avise por esta conversa.';
 const STATUS={agendado:'A confirmar',confirmado:'Confirmado',cancelado:'Desmarcou',chegou:'Paciente chegou',atendendo:'Em atendimento',concluido:'Atendido',faltou:'Faltou'};
 const ST_COLOR={agendado:'var(--line)',confirmado:'var(--accent)',cancelado:'var(--muted)',chegou:'var(--warn)',atendendo:'var(--busy)',concluido:'var(--ok)',faltou:'var(--bad)'};
@@ -422,7 +422,7 @@ async function loadExamples(){
   for(const[nome,especialidade,registro,cor]of profs){const id=store.newId('profissionais');P.push(id);await store.set('profissionais',id,{nome:nome+' (exemplo)',especialidade,registro,telefone:'',dias:[],cor,ativo:true,exemplo:true});}
   const bens=[['Maria das Dores Silva',4],['José Antônio Pereira',2],['Ana Cláudia Souza',5],['Francisco Lima',1],['Luciana Ferreira',3],['Sebastião Rocha',6]];
   for(const[nome,familia]of bens){const id=store.newId('beneficiarios');B.push(id);await store.set('beneficiarios',id,{nome:nome+' (exemplo)',cpf:'',nascimento:'',telefone:'',endereco:'',bairro:'',familia,recebeCesta:true,obs:'',exemplo:true});}
-  const ags=[['consulta',0,0,480,15,'confirmado'],['consulta',0,1,495,15,'agendado'],['consulta',0,3,540,15,'faltou'],['consulta',1,2,510,15,'agendado'],['consulta',2,3,600,60,'agendado'],['consulta',3,4,570,45,'agendado'],['consulta',4,5,840,60,'agendado'],['consulta',5,0,660,45,'agendado'],
+  const ags=[['consulta',0,0,480,30,'confirmado'],['consulta',0,1,510,30,'agendado'],['consulta',0,3,540,30,'faltou'],['consulta',1,2,510,30,'agendado'],['consulta',2,3,600,60,'agendado'],['consulta',3,4,570,45,'agendado'],['consulta',4,5,840,60,'agendado'],['consulta',5,0,660,45,'agendado'],
     ['cesta',null,2,540,30,'concluido'],['cesta',null,5,570,30,'agendado'],['cesta',null,1,600,30,'agendado']];
   for(const[tipo,p,b,inicio,duracao,status]of ags){const id=store.newId('agendamentos');
     await store.set('agendamentos',id,{tipo,data:t,inicio,duracao,beneficiarioId:B[b],profissionalId:p==null?'':P[p],status,obs:'',qtd:1,exemplo:true});}
@@ -667,8 +667,18 @@ function endDrag(commit){
   if(!d.resize){if(ui.mode==='dia'){if(cur.tipo==='consulta')next.profissionalId=d.col;}else next.data=d.col;}
   if(next.inicio===cur.inicio&&next.duracao===cur.duracao&&next.profissionalId===cur.profissionalId&&next.data===cur.data){render();
     if(d.type!=='mouse'&&!d.moved){const r=d.el.getBoundingClientRect();openCtx(cur,d.x0,Math.min(d.y0,r.bottom));}return;}
-  store.set('agendamentos',cur.id,clean(next));
-  toast(d.resize?`Duração: ${next.duracao} min`:`Movido para ${ui.mode==='semana'?fmtDay(next.data,{weekday:'short',day:'numeric'})+' ':''}${hhmm(next.inicio)}`);
+  pedirConfirmacaoMudanca(cur,next,d.resize);
+}
+function pedirConfirmacaoMudanca(cur,next,resize){
+  render();
+  const quando=a=>brDate(a.data)+' das '+hhmm(a.inicio)+' às '+hhmm(a.inicio+a.duracao);
+  const p0=pOf(cur.profissionalId),p1=pOf(next.profissionalId);
+  const corpo=[el('div',{class:'f w',text:bName(cur.beneficiarioId)+(resize?' · duração de '+cur.duracao+' para '+next.duracao+' min':'')}),
+    el('div',{class:'f w',text:'Antes: '+quando(cur)}),el('div',{class:'f w',text:'Depois: '+quando(next)})];
+  if(cur.profissionalId!==next.profissionalId&&cur.tipo==='consulta')corpo.push(el('div',{class:'f w',text:'Profissional: '+(p0?p0.nome:'—')+' → '+(p1?p1.nome:'—')}));
+  openDlg(resize?'Confirmar nova duração':'Confirmar mudança de horário',corpo,
+    [el('span',{class:'sp'}),el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Cancelar'),el('button',{type:'submit',class:'btn pri'},'Confirmar')],
+    ()=>{store.set('agendamentos',cur.id,clean(next));dlg.close();toast(resize?'Duração: '+next.duracao+' min':'Movido para '+brDate(next.data)+' às '+hhmm(next.inicio));});
 }
 document.addEventListener('touchmove',e=>{if(drag&&drag.active)e.preventDefault();},{passive:false});
 
@@ -750,7 +760,7 @@ function openAg(src){
     lblProf.textContent=k==='medico'?'Com qual médico será o atendimento?':'Profissional';
     return list.length;
   }
-  function autoDur(){if(durTouched||tipo.value==='cesta')return;const p=pOf(prof.value);setDur(p?durPadrao(p):(tipo.value==='medico'?15:30));}
+  function autoDur(){if(durTouched||tipo.value==='cesta')return;const p=pOf(prof.value);setDur(p?durPadrao(p):30);}
   let nProf=fillProf(a.profissionalId);
   function sync(){
     const cesta=tipo.value==='cesta';fProf.hidden=cesta;fQtd.hidden=!cesta;
@@ -915,7 +925,7 @@ function openProf(p){
   const med=el('input',{type:'checkbox',id:'pMed'});med.checked=isNew?false:isMed(p);
   const durP=sel('pDur',[['15','15 min'],['30','30 min'],['45','45 min'],['60','1 h']],String(isNew?30:durPadrao(p)));
   let medT=!isNew,durT=!isNew;
-  const auto=()=>{if(!medT)med.checked=inferMed(esp.value,reg.value);if(!durT)durP.value=med.checked?'15':'30';};
+  const auto=()=>{if(!medT)med.checked=inferMed(esp.value,reg.value);if(!durT)durP.value='30';};
   esp.addEventListener('input',auto);reg.addEventListener('input',auto);
   med.addEventListener('change',()=>{medT=true;auto();});durP.addEventListener('change',()=>{durT=true;});
   const body=[field('Nome',nome,true),field('Especialidade ou área',esp),field('Registro profissional',reg),field('Telefone',tel),
