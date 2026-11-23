@@ -1,10 +1,10 @@
-// Cole aqui o firebaseConfig do projeto (Firebase Console > Configurações do projeto > Seus apps > App da Web).
+// Configuração do projeto Firebase "gerenciador-ong".
 // Estes valores identificam o projeto e podem ficar no repositório: quem protege os dados são o login e o arquivo firestore.rules.
 window.FIREBASE_CONFIG = {
-  apiKey: "COLE_AQUI",
-  authDomain: "COLE_AQUI.firebaseapp.com",
-  projectId: "COLE_AQUI",
-  storageBucket: "COLE_AQUI.firebasestorage.app",
-  messagingSenderId: "COLE_AQUI",
-  appId: "COLE_AQUI"
+  apiKey: "AIzaSyDRtZD4BM-mj018LqrCx1SfcudBqCqdxf8",
+  authDomain: "gerenciador-ong.firebaseapp.com",
+  projectId: "gerenciador-ong",
+  storageBucket: "gerenciador-ong.firebasestorage.app",
+  messagingSenderId: "42092690670",
+  appId: "1:42092690670:web:f1e27b1fdda7b6ec00c7ff"
 };
