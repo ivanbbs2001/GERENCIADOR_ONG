@@ -98,7 +98,7 @@ select,input[type=text],input[type=search],input[type=date],input[type=time],inp
   font-size:12px;font-weight:600;padding:5px 8px;pointer-events:none;background:var(--accent-soft);opacity:.85;z-index:1}
 .now{position:absolute;left:0;right:0;height:0;border-top:2px solid var(--bad);z-index:2;pointer-events:none}
 .ev{position:absolute;border-radius:6px;padding:2px 6px 2px 9px;overflow:hidden;font-size:12px;line-height:14px;cursor:grab;z-index:2;
-  background:hsl(var(--h) var(--ev-s) var(--ev-l));color:hsl(var(--h) 45% var(--ev-ink-l));
+  background:var(--sb,hsl(var(--h) var(--ev-s) var(--ev-l)));color:var(--si,hsl(var(--h) 45% var(--ev-ink-l)));
   border:1px solid hsl(var(--h) 40% var(--ev-bar-l) / .35);
   box-shadow:inset 4px 0 0 hsl(var(--h) 55% var(--ev-bar-l)),inset -6px 0 0 var(--st,transparent);
   touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
@@ -108,6 +108,15 @@ select,input[type=text],input[type=search],input[type=date],input[type=time],inp
 .ev .l2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
 .ev.short .l2{display:none}
 .ev.short{padding-top:2px}
+.st-agendado{--sb:#d6619c;--si:#ffffff}
+.st-confirmado{--sb:#2f9e5e;--si:#ffffff}
+.st-cancelado{--sb:#c9a316;--si:#1f1800}
+.st-chegou{--sb:#8fcdf2;--si:#06223a}
+.st-atendendo{--sb:#c49a6c;--si:#2a1708}
+.st-concluido{--sb:#1d4e9c;--si:#ffffff}
+.st-faltou{--sb:#7d8790;--si:#ffffff}
+.legenda{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px;font-size:12px}
+.legenda span{padding:3px 9px;border-radius:999px;background:var(--sb);color:var(--si);font-weight:600}
 .ev.st-cancelado{opacity:.5}.ev.st-cancelado b{text-decoration:line-through}
 .ev.st-faltou{border-style:dashed;--st:var(--bad)}
 .ev.st-confirmado{--st:var(--accent)}.ev.st-chegou{--st:var(--warn)}.ev.st-atendendo{--st:var(--busy)}.ev.st-concluido{--st:var(--ok)}
@@ -275,6 +284,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
       <button class="btn pri" id="newAg">+ Agendar</button>
     </div>
     <div class="ptabs" id="profTabs" role="group" aria-label="Filtrar a semana por profissional"></div>
+    <div class="legenda" aria-label="Cores por situação"><span class="st-agendado">A confirmar</span><span class="st-confirmado">Confirmado</span><span class="st-cancelado">Desmarcou</span><span class="st-chegou">Paciente chegou</span><span class="st-atendendo">Em atendimento</span><span class="st-concluido">Atendido</span><span class="st-faltou">Faltou</span></div>
     <div class="cal" id="cal"><div class="cal-in" id="calIn"></div></div>
     <div class="hint"><span class="h-d">Clique no nome de um profissional para ver só a semana dele; clique de novo para ver todos. Clique em um horário vago para agendar. Botão direito em um agendamento muda a situação ou abre o WhatsApp. Arraste para mudar horário, profissional ou dia; puxe a borda inferior para mudar a duração.</span><span class="h-m">Toque em um horário vago para agendar. Segure um agendamento e solte para mudar a situação; segure e arraste para mover.</span></div>
   </section>
