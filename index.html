@@ -169,6 +169,12 @@ dialog::backdrop{background:rgb(8 20 18 / .5)}
 .pick-list button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-bottom:1px solid var(--line-soft)}
 .pick-list button:hover{background:var(--surface-2)}
 .pick-list button small{color:var(--muted);margin-left:6px}
+.pick-list button.res{display:flex;align-items:center;gap:10px}
+.pick-list button.res .res-t{display:flex;flex-direction:column;min-width:0}
+.pick-list button.res .res-n{font-weight:600;overflow-wrap:anywhere}
+.pick-list button.res small{display:block;margin:0;color:var(--muted);font-size:12px}
+.pick-list mark{background:none;color:var(--accent);font-weight:700}
+.pick-list .av{flex:0 0 34px;height:34px;border-radius:50%;background:var(--surface-2);color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:1px solid var(--line)}
 .chip{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--surface-2)}
 .chip b{margin-right:auto;overflow-wrap:anywhere}
 .msg{grid-column:1/-1;font-size:13px;border-radius:8px;padding:8px 10px;background:var(--warn-bg);color:var(--warn)}
@@ -700,6 +706,27 @@ async function baixarBackup(){
 }
 
 /* ---------- nomes ---------- */
+function buscarBenef(lista,termo){
+  const t=norm(termo).trim();
+  const pos=b=>{const i=norm(b.nome).indexOf(t);return i<0?999:i;};
+  const base=t?lista.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')).includes(t)).sort((x,y)=>pos(x)-pos(y)||norm(x.nome).localeCompare(norm(y.nome))):lista;
+  return base.slice(0,8);
+}
+function realce(texto,termo){
+  const t=norm(termo).trim();if(!t)return [texto];
+  let nrm='';const map=[];
+  for(let i=0;i<texto.length;i++){for(const ch of norm(texto[i])){nrm+=ch;map.push(i);}}
+  const k=nrm.indexOf(t);if(k<0)return [texto];
+  const ini=map[k],fim=map[k+t.length-1]+1;
+  return [texto.slice(0,ini),el('mark',{text:texto.slice(ini,fim)}),texto.slice(fim)];
+}
+function resultadoBenef(b,termo,onPick){
+  const ini=(b.nome||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase();
+  return el('button',{type:'button',class:'res',onclick:()=>onPick(b)},
+    el('span',{class:'av','aria-hidden':'true',text:ini}),
+    el('span',{class:'res-t'},el('span',{class:'res-n'},...realce(b.nome,termo)),
+      el('small',{text:b.telefone||'Telefone não informado'}),b.cpf?el('small',{text:'CPF '+b.cpf}):null));
+}
 const bName=id=>{const b=S.beneficiarios.get(id);return b?b.nome:(id?'(beneficiário removido)':'(sem beneficiário)');};
 const pOf=id=>S.profissionais.get(id);
 const sortedProfs=()=>[...S.profissionais.values()].sort((a,b)=>norm(a.especialidade).localeCompare(norm(b.especialidade))||norm(a.nome).localeCompare(norm(b.nome)));
@@ -1065,8 +1092,8 @@ function openAg(src){
     if(benefId){pickBox.append(el('div',{class:'chip'},el('b',{text:bName(benefId)}),el('button',{type:'button',class:'btn sm',onclick:()=>{benefId='';drawPick();$('agBusca').focus();}},'Trocar')));return;}
     const q=inp('agBusca','search','',{placeholder:'Digite o nome, CPF ou telefone'});const list=el('div',{class:'pick-list'});
     const draw=()=>{const t=norm(q.value);const all=[...S.beneficiarios.values()].filter(b=>!b.arquivado).sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));
-      const hits=(t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')).includes(t)):all).slice(0,8);
-      list.replaceChildren(...hits.map(b=>el('button',{type:'button',onclick:()=>{benefId=b.id;drawPick();}},b.nome,b.telefone?el('small',{text:b.telefone}):null)));
+      const hits=buscarBenef(all,q.value);
+      list.replaceChildren(...hits.map(b=>resultadoBenef(b,q.value,x=>{benefId=x.id;drawPick();})));
       if(q.value.trim()&&!all.some(b=>norm(b.nome)===t))list.append(el('button',{type:'button',onclick:async()=>{const id=store.newId('beneficiarios');
         await store.set('beneficiarios',id,{nome:q.value.trim(),cpf:'',nascimento:'',telefone:'',endereco:'',bairro:'',familia:1,recebeCesta:tipo.value==='cesta',obs:''});benefId=id;drawPick();toast('Beneficiário cadastrado. Complete os dados depois.');}},
         '+ Cadastrar “'+q.value.trim()+'” como novo beneficiário'));
@@ -1110,9 +1137,9 @@ function openBenef(b,startTab,ctxAg){
   const buscaBenef=(getList,onPick,placeholder)=>{
     const q=el('input',{type:'search',placeholder:placeholder,autocomplete:'off','aria-label':placeholder});
     const list=el('div',{class:'pick-list'});
-    const draw=()=>{const t=norm(q.value);const all=getList();
-      const hits=(t?all.filter(x=>norm(x.nome+' '+(x.cpf||'')+' '+(x.telefone||'')).includes(t)):all).slice(0,8);
-      list.replaceChildren(...hits.map(x=>el('button',{type:'button',onclick:()=>onPick(x)},x.nome,x.telefone?el('small',{text:x.telefone}):null)));
+    const draw=()=>{const all=getList();
+      const hits=buscarBenef(all,q.value);
+      list.replaceChildren(...hits.map(x=>resultadoBenef(x,q.value,onPick)));
       list.hidden=!list.childNodes.length;};
     q.addEventListener('input',draw);draw();
     return el('div',null,q,list);
