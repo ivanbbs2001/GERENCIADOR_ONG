@@ -190,6 +190,10 @@ dialog::backdrop{background:rgb(8 20 18 / .5)}
 .chk-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);cursor:pointer;margin:0;font-size:14px;font-weight:600}
 .chk-row small{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:2px}
 .chk-row input{width:18px;height:18px;flex:0 0 18px;margin:0}
+.tel-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.tel-row input[type=tel]{flex:1 1 180px;min-width:0}
+.chk-inline{display:flex;gap:6px;align-items:center;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer;margin:0}
+.chk-inline input{width:16px;height:16px;margin:0}
 .ben-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ben-row{display:flex;align-items:center;gap:6px;padding:2px 6px 2px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}
 .ben-l{flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:14px;padding:8px 0;margin:0}
@@ -740,7 +744,7 @@ async function baixarBackup(){
 function buscarBenef(lista,termo){
   const t=norm(termo).trim();
   const pos=b=>{const i=norm(b.nome).indexOf(t);return i<0?999:i;};
-  const base=t?lista.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')).includes(t)).sort((x,y)=>pos(x)-pos(y)||norm(x.nome).localeCompare(norm(y.nome))):lista;
+  const base=t?lista.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')+' '+(b.telefone||'').replace(/\D/g,'')).includes(t)).sort((x,y)=>pos(x)-pos(y)||norm(x.nome).localeCompare(norm(y.nome))):lista;
   return base.slice(0,8);
 }
 function realce(texto,termo){
@@ -930,10 +934,14 @@ calEl.addEventListener('pointerdown',hideTip);
 calEl.addEventListener('scroll',hideTip,{passive:true});
 const ctx=$('ctx');
 function closeCtx(){if(!ctx.hidden){ctx.hidden=true;ctx.replaceChildren();}}
+// máscara (00) 00000-0000 para telefone nacional; número internacional não recebe máscara
+function mascaraTel(v){const d=String(v||'').replace(/\D/g,'').slice(0,11);if(d.length<=2)return d?'('+d:'';if(d.length<=6)return'('+d.slice(0,2)+') '+d.slice(2);if(d.length<=10)return'('+d.slice(0,2)+') '+d.slice(2,6)+'-'+d.slice(6);return'('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7);}
+// número para wa.me: nacional recebe 55; internacional já vem com o código do país
+function waNumero(tel,intl){const d=String(tel||'').replace(/\D/g,'');if(intl)return d.length>=8?d:'';const n=d.replace(/^0+/,'');return n.length>=10?'55'+n:'';}
 function waDirect(a){
-  const b=S.beneficiarios.get(a.beneficiarioId),digits=((b&&b.telefone)||'').replace(/\D/g,'').replace(/^0+/,'');
-  if(digits.length<10)return'';
-  return waHref(b,[...S.agendamentos.values()].filter(x=>x.beneficiarioId===a.beneficiarioId),a.data)||'https://wa.me/'+(digits.length<=11?'55':'')+digits;
+  const b=S.beneficiarios.get(a.beneficiarioId),num=waNumero(b&&b.telefone,b&&b.telefoneInternacional);
+  if(!num)return'';
+  return waHref(b,[...S.agendamentos.values()].filter(x=>x.beneficiarioId===a.beneficiarioId),a.data)||'https://wa.me/'+num;
 }
 function setAgStatus(id,st){
   const cur=S.agendamentos.get(id);closeCtx();if(!cur||cur.status===st)return;
@@ -1075,8 +1083,8 @@ function statsLine(st){
   return st.rate==null?`${st.total} atendimento(s) agendado(s), nenhum concluído ainda.`:`${st.miss} falta(s) em ${st.done+st.miss} atendimentos encerrados (${st.rate}% de não comparecimento).`;
 }
 function waHref(b,list,refDate){
-  const digits=((b&&b.telefone)||'').replace(/\D/g,'').replace(/^0+/,'');
-  if(digits.length<10)return'';
+  const num=waNumero(b&&b.telefone,b&&b.telefoneInternacional);
+  if(!num)return'';
   const m=monday(refDate),e=addDays(m,6);
   const wk=list.filter(a=>a.data>=m&&a.data<=e&&(a.status==='agendado'||a.status==='confirmado')).sort((x,y)=>(x.data+pad(x.inicio)).localeCompare(y.data+pad(y.inicio)));
   if(!wk.length)return'';
@@ -1085,13 +1093,13 @@ function waHref(b,list,refDate){
   const contato=!!(b.telefoneDeContato&&b.contatoNome);
   const destino=contato?b.contatoNome:(b.nome||'');
   const txt=(contato?'Referente a '+(b.nome||'')+'.\n':'')+(S.config.msg||MSG_PADRAO).replace(/\{nome\}/g,destino.trim().split(/\s+/)[0]||'').replace(/\{ong\}/g,S.config.ong||'nossa ONG').replace(/\{horarios\}/g,lines);
-  return'https://wa.me/'+(digits.length<=11?'55':'')+digits+'?text='+encodeURIComponent(txt);
+  return'https://wa.me/'+num+'?text='+encodeURIComponent(txt);
 }
 function waButton(){return el('a',{class:'btn wa',target:'_blank',rel:'noopener','aria-disabled':'true',title:'Carregando…'},'WhatsApp');}
 function setWa(link,b,list,refDate){
   const h=waHref(b,list,refDate);
   if(h){link.href=h;link.removeAttribute('aria-disabled');link.title='Abre o WhatsApp com os horários da semana de '+brDate(monday(refDate));}
-  else{link.removeAttribute('href');link.setAttribute('aria-disabled','true');link.title=!b||(b.telefone||'').replace(/\D/g,'').length<10?'Cadastre o telefone com DDD para avisar pelo WhatsApp':'Sem horários agendados nesta semana';}
+  else{link.removeAttribute('href');link.setAttribute('aria-disabled','true');link.title=!b||!waNumero(b.telefone,b.telefoneInternacional)?'Cadastre o telefone com DDD para avisar pelo WhatsApp':'Sem horários agendados nesta semana';}
 }
 
 /* agendamento */
@@ -1279,12 +1287,12 @@ function openBenef(b,startTab,ctxAg){
   const enviarWhats=()=>{
     const sel=benCks.filter(([k,c])=>c.checked).map(([k])=>k);
     if(!sel.length)return showErr('Marque pelo menos um benefício para enviar.');
-    const digits=(tel.value||'').replace(/\D/g,'').replace(/^0+/,'');
-    if(digits.length<10)return showErr('Informe o telefone com DDD para enviar pelo WhatsApp.');
+    const num=waNumero(tel.value,intl.checked);
+    if(!num)return showErr(intl.checked?'Informe o número internacional completo para enviar pelo WhatsApp.':'Informe o telefone com DDD para enviar pelo WhatsApp.');
     const contato=!!(contCk.checked&&contNome.value.trim());
     const dest=contato?contNome.value.trim():nome.value.trim();
     const txt=textoBeneficios(sel,dest,nome.value.trim(),contato);
-    window.open('https://wa.me/'+(digits.length<=11?'55':'')+digits+'?text='+encodeURIComponent(txt),'_blank','noopener');
+    window.open('https://wa.me/'+num+'?text='+encodeURIComponent(txt),'_blank','noopener');
   };
   const enviarRow=el('div',{class:'f w'},el('button',{type:'button',class:'btn wa',onclick:enviarWhats},'ENVIAR NO WHATS'),
     el('div',{class:'small',text:'Abre o WhatsApp com as instruções dos benefícios marcados, para você conferir e enviar.'}));
@@ -1294,7 +1302,12 @@ function openBenef(b,startTab,ctxAg){
   const relOpts=el('datalist',{id:'relacoesContato'},['Mãe','Pai','Filho(a)','Cônjuge','Irmão(ã)','Neto(a)','Vizinho(a)','Responsável legal','Outro'].map(v=>el('option',{value:v})));
   const contBox=el('div',{class:'panel contato-box',hidden:!contCk.checked},relOpts,field('Nome do contato',contNome,true),field('Relação com o beneficiário',contRel,true));
   contCk.addEventListener('change',()=>{contBox.hidden=!contCk.checked;});
-  const telRow=field('Telefone (com DDD)',tel);
+  const intl=el('input',{type:'checkbox',id:'bTelIntl'});intl.checked=!!b.telefoneInternacional;
+  const aplicaTel=()=>{if(intl.checked){tel.placeholder='+DDI número';tel.setAttribute('inputmode','tel');}else{tel.placeholder='(00) 00000-0000';tel.setAttribute('inputmode','numeric');tel.value=mascaraTel(tel.value);}};
+  tel.addEventListener('input',()=>{if(!intl.checked)tel.value=mascaraTel(tel.value);});
+  intl.addEventListener('change',aplicaTel);
+  aplicaTel();
+  const telRow=el('div',{class:'f w'},el('label',{for:'bTel',text:'Telefone (com DDD)'}),el('div',{class:'tel-row'},tel,el('label',{class:'chk-inline'},intl,el('span',{text:'Número internacional'}))));
   const contRow=el('label',{class:'chk-row'},contCk,el('span',null,'Telefone de contato',el('small',{text:'O beneficiário não tem telefone; o número é de familiar ou responsável'})));
   const sec=t=>el('div',{class:'fsec',text:t});
   const outros=[...S.beneficiarios.values()].filter(x=>x.id!==b.id&&!x.arquivado).sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));
@@ -1390,10 +1403,13 @@ function openBenef(b,startTab,ctxAg){
     if(!isNew)show('cad');
     if(!nome.value.trim())return showErr('Informe o nome.');
     if(contCk.checked){if(!tel.value.trim())return showErr('Informe o telefone do contato.');if(!contNome.value.trim())return showErr('Informe o nome do contato.');if(!contRel.value.trim())return showErr('Informe a relação do contato com o beneficiário.');}
+    const telDig=tel.value.replace(/\D/g,'');
+    if(tel.value.trim()&&!intl.checked&&telDig.length<10)return showErr('Telefone incompleto: informe o DDD e o número.');
+    if(tel.value.trim()&&intl.checked&&telDig.length<8)return showErr('Informe o número internacional completo.');
     const digits=cpf.value.replace(/\D/g,'');
     if(digits&&digits.length!==11)return showErr('O CPF precisa ter 11 dígitos.');
     if(digits){const dup=[...S.beneficiarios.values()].find(x=>x.id!==b.id&&(x.cpf||'').replace(/\D/g,'')===digits);if(dup)return showErr('Este CPF já está cadastrado para '+dup.nome+'.');}
-    const rec=Object.assign(clean(b),{nome:nome.value.trim(),cpf:cpf.value.trim(),nascimento:nasc.value,telefone:tel.value.trim(),endereco:end.value.trim(),bairro:bairro.value.trim(),
+    const rec=Object.assign(clean(b),{nome:nome.value.trim(),cpf:cpf.value.trim(),nascimento:nasc.value,telefone:tel.value.trim(),telefoneInternacional:intl.checked,endereco:end.value.trim(),bairro:bairro.value.trim(),
       familia:Math.max(1,Number(fam.value)||1),recebeCesta:cesta.checked,obs:obs.value.trim(),telefoneDeContato:contCk.checked,contatoNome:contCk.checked?contNome.value.trim():'',contatoRelacao:contCk.checked?contRel.value.trim():''});
     const bid=b.id||store.newId('beneficiarios'),ref=famId?S.beneficiarios.get(famId):null;rec.familiaId=ref?(ref.familiaId||ref.id):bid;
     rec.beneficios=Object.fromEntries(benCks.map(([k,c])=>[k,c.checked]));
@@ -1457,7 +1473,7 @@ function openProf(p){
 function idade(n){if(!n)return'';const d=parse(n),t=new Date();let a=t.getFullYear()-d.getFullYear();if(t<new Date(t.getFullYear(),d.getMonth(),d.getDate()))a--;return a+' anos';}
 function renderBenef(){
   const t=norm(ui.search),all=[...S.beneficiarios.values()].filter(b=>ui.arq||!b.arquivado).sort((a,b)=>norm(a.nome).localeCompare(norm(b.nome)));
-  const list=t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')+' '+(b.bairro||'')).includes(t)):all;
+  const list=t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')+' '+(b.telefone||'').replace(/\D/g,'')+' '+(b.bairro||'')).includes(t)):all;
   $('bCount').textContent=all.length?(list.length===all.length?all.length+' cadastrados':list.length+' de '+all.length):'';
   const box=$('bList');
   if(!list.length){box.replaceChildren(el('div',{class:'empty'},el('h3',{text:all.length?'Nenhum resultado para a busca':'Nenhum beneficiário cadastrado'}),all.length?'Confira a grafia ou busque por CPF ou telefone.':'Use “Novo beneficiário” para começar o cadastro. Também dá para cadastrar direto na tela de agendamento.'));return;}
