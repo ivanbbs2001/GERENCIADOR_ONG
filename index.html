@@ -1495,16 +1495,33 @@ function openProf(p){
 
 /* ---------- listas ---------- */
 function idade(n){if(!n)return'';const d=parse(n),t=new Date();let a=t.getFullYear()-d.getFullYear();if(t<new Date(t.getFullYear(),d.getMonth(),d.getDate()))a--;return a+' anos';}
+// regra de inatividade: sem comparecimento (consulta ou cesta entregue) há mais de INATIVO_MESES meses
+const INATIVO_MESES=8;
+const COMPARECEU=['chegou','atendendo','concluido'];
+function beneficiosInativos(){
+  const hojeISO=todayISO(),d=parse(hojeISO);d.setMonth(d.getMonth()-INATIVO_MESES);const corte=iso(d);
+  // referência por beneficiário: último comparecimento; se nunca compareceu, último registro passado (exceto desmarcados)
+  const ref=new Map();
+  for(const a of S.agendamentos.values()){
+    if(!a.beneficiarioId||!a.data||a.data>hojeISO||a.status==='cancelado')continue;
+    const comp=COMPARECEU.includes(a.status),cur=ref.get(a.beneficiarioId);
+    if(!cur||(comp&&!cur.comp)||(comp===cur.comp&&a.data>cur.data))ref.set(a.beneficiarioId,{data:a.data,comp});
+  }
+  const out=new Set();
+  for(const [id,r] of ref)if(r.data<corte)out.add(id);
+  return out;
+}
 function renderBenef(){
   const t=norm(ui.search),all=[...S.beneficiarios.values()].filter(b=>ui.arq||!b.arquivado).sort((a,b)=>norm(a.nome).localeCompare(norm(b.nome)));
   const list=t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')+' '+(b.telefone||'').replace(/\D/g,'')+' '+(b.bairro||'')).includes(t)):all;
   $('bCount').textContent=all.length?(list.length===all.length?all.length+' cadastrados':list.length+' de '+all.length):'';
-  const box=$('bList');
+  const box=$('bList'),inat=beneficiosInativos();
   if(!list.length){box.replaceChildren(el('div',{class:'empty'},el('h3',{text:all.length?'Nenhum resultado para a busca':'Nenhum beneficiário cadastrado'}),all.length?'Confira a grafia ou busque por CPF ou telefone.':'Use “Novo beneficiário” para começar o cadastro. Também dá para cadastrar direto na tela de agendamento.'));return;}
   box.replaceChildren(...list.slice(0,400).map(b=>el('button',{class:'row',type:'button',onclick:()=>openBenef(b)},
     el('b',{text:b.nome}),el('span',{text:[b.telefone,idade(b.nascimento)].filter(Boolean).join(' · ')||'Sem telefone'}),
     el('span',{text:[b.bairro,(b.familia||1)+(b.familia>1?' pessoas na família':' pessoa na família')].filter(Boolean).join(' · ')}),
-    b.arquivado?el('span',{class:'pill',text:'Arquivado'}):b.recebeCesta?el('span',{class:'pill acc',text:'Cesta básica'}):el('span'))));
+    b.arquivado?el('span',{class:'pill',text:'Arquivado'}):b.recebeCesta?el('span',{class:'pill acc',text:'Cesta básica'}):el('span'),
+    !b.arquivado&&inat.has(b.id)?el('span',{class:'pill warn',title:'Sem comparecimento há mais de '+INATIVO_MESES+' meses',text:'Inativo'}):null)));
   if(list.length>400)box.append(el('div',{class:'empty'},'Mostrando os 400 primeiros. Use a busca para encontrar os demais.'));
 }
 function renderProf(){
