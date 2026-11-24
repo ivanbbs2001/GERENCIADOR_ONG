@@ -1170,7 +1170,7 @@ function openBenef(b,startTab,ctxAg){
   }
   const body=[isNew?null:tabs,pCad,pHist,pPront,errBox()];
   const foot=[isNew?null:el('button',{type:'button',class:'btn',onclick:()=>{store.set('beneficiarios',b.id,clean(Object.assign({},b,{arquivado:!b.arquivado})));dlg.close();toast(b.arquivado?'Beneficiário reativado.':'Beneficiário arquivado. O histórico continua salvo.');}},b.arquivado?'Reativar':'Arquivar'),isNew||!isAdmin?null:delButton(()=>{store.del('beneficiarios',b.id);dlg.close();toast('Beneficiário excluído.');}),el('span',{class:'sp'}),
-    el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Fechar'),el('button',{type:'button',class:'btn',onclick:()=>salvarBenef(true)},'Salvar e adicionar novo'),el('button',{type:'submit',class:'btn pri'},'Salvar cadastro')];
+    el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Fechar'),isNew?el('button',{type:'button',class:'btn',onclick:()=>salvarBenef(true)},'Salvar e adicionar novo'):null,el('button',{type:'submit',class:'btn pri'},'Salvar cadastro')];
   const salvarBenef=(novo)=>{
     if(!isNew)show('cad');
     if(!nome.value.trim())return showErr('Informe o nome.');
