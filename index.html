@@ -215,7 +215,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
 .ctx button,.ctx a{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:6px;font-weight:500;color:var(--ink);text-decoration:none;min-height:36px}
 .ctx button:hover,.ctx a:hover,.ctx button:focus-visible,.ctx a:focus-visible{background:var(--surface-2)}
 .ctx [aria-checked="true"]{font-weight:700}
-.ctx .sd{width:10px;height:10px;border-radius:50%;background:var(--c,var(--line));flex:none}
+.ctx .sd{width:12px;height:12px;border-radius:50%;background:var(--sb,var(--line));flex:none}
 .ctx .ck{margin-left:auto;color:var(--accent)}
 .ctx hr{border:0;border-top:1px solid var(--line);margin:5px 0}
 .ctx .dis{color:var(--muted);padding:8px 10px;font-size:13px}
@@ -885,7 +885,7 @@ function openCtx(a,x,y){
   const cur=a.status||'agendado',wa=waDirect(a);
   ctx.replaceChildren(el('h4',{text:hhmm(a.inicio)+' · '+bName(a.beneficiarioId)}),
     ...stOptions(a.tipo==='cesta').map(o=>el('button',{type:'button',role:'menuitemradio','aria-checked':String(o[0]===cur),onclick:()=>setAgStatus(a.id,o[0])},
-      el('span',{class:'sd',style:'--c:'+ST_COLOR[o[0]]}),o[1],o[0]===cur?el('span',{class:'ck',text:'✓'}):null)),
+      el('span',{class:'sd st-'+o[0]}),o[1],o[0]===cur?el('span',{class:'ck',text:'✓'}):null)),
     el('hr'),
     wa?el('a',{class:'wa',role:'menuitem',href:wa,target:'_blank',rel:'noopener',onclick:()=>setTimeout(closeCtx,0)},'WhatsApp'):el('div',{class:'dis',text:'WhatsApp: cadastre o telefone com DDD'}),
     el('button',{type:'button',role:'menuitem',onclick:()=>{closeCtx();openAg(S.agendamentos.get(a.id));}},'Editar agendamento'));
