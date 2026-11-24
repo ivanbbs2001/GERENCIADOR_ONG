@@ -210,6 +210,9 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
 .gate label{font-size:12px;font-weight:600;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .gate input{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 10px;width:100%}
 .gate .lnk{border:0;background:transparent;color:var(--accent);font-weight:600;padding:4px;align-self:flex-start}
+.ev-tip{position:fixed;z-index:30;max-width:280px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 8px 24px rgb(0 0 0 / .3);font-size:13px;line-height:1.45;pointer-events:none}
+.ev-tip b{display:block;margin-bottom:2px;overflow-wrap:anywhere}
+.ev-tip .k{color:var(--muted)}
 .ctx{position:fixed;z-index:25;min-width:220px;max-width:calc(100vw - 16px);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:5px;box-shadow:0 10px 30px rgb(0 0 0 / .25)}
 .ctx h4{margin:0;padding:6px 10px 4px;font:600 12px var(--font-body);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ctx button,.ctx a{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:6px;font-weight:500;color:var(--ink);text-decoration:none;min-height:36px}
@@ -790,7 +793,7 @@ function evNode(a,p){
   const mark=ST_MARK[a.status]||'';
   const n=el('div',{class:'ev '+(a.duracao<30?'short ':'')+colorClass(a)+' st-'+(a.status||'agendado'),tabindex:0,role:'button',dataset:{id:a.id},
     style:`top:${top}px;height:${h}px;left:calc(${p.lane*w}% + 2px);width:calc(${w}% - 4px)`,
-    'aria-label':`${hhmm(a.inicio)}, ${bName(a.beneficiarioId)}, ${sub}, ${stLabel(a)}`,title:`${hhmm(a.inicio)}–${hhmm(a.inicio+a.duracao)} · ${stLabel(a)}`},
+    'aria-label':`${hhmm(a.inicio)}, ${bName(a.beneficiarioId)}, ${sub}, ${stLabel(a)}`},
     el('div',{class:'l1'},el('span',{class:'t',text:hhmm(a.inicio)+' '}),el('b',{text:mark+bName(a.beneficiarioId)})),
     el('div',{class:'l2',text:sub}),el('div',{class:'ev-rs'}));
   return n;
@@ -869,6 +872,36 @@ $('cal').addEventListener('contextmenu',e=>{
   if(drag&&drag.type!=='mouse')return;
   openCtx(S.agendamentos.get(ev.dataset.id),e.clientX,e.clientY);
 });
+/* balão ao parar o mouse sobre um agendamento */
+const tip=el('div',{class:'ev-tip',role:'tooltip',hidden:true});
+document.body.append(tip);
+let tipT=0;
+function hideTip(){clearTimeout(tipT);tip.hidden=true;}
+function showTip(n){
+  if(document.querySelector('.ev.dragging'))return;
+  const a=S.agendamentos.get(n.dataset.id);if(!a||!n.isConnected)return;
+  const p=pOf(a.profissionalId);
+  tip.replaceChildren(
+    el('b',{text:bName(a.beneficiarioId)}),
+    el('div',null,el('span',{class:'k',text:'Status: '}),stLabel(a)),
+    el('div',null,el('span',{class:'k',text:'Data: '}),brDate(a.data)+', '+hhmm(a.inicio)+'–'+hhmm(a.inicio+a.duracao)),
+    el('div',null,el('span',{class:'k',text:'Profissional: '}),a.tipo==='cesta'?'Cesta básica':(p?p.nome+(p.especialidade?' · '+p.especialidade:''):'Sem profissional')));
+  tip.hidden=false;
+  const r=n.getBoundingClientRect(),tr=tip.getBoundingClientRect();
+  let x=r.right+8;if(x+tr.width>innerWidth-8)x=r.left-tr.width-8;
+  const y=Math.max(8,Math.min(r.top,innerHeight-tr.height-8));
+  tip.style.left=Math.max(8,x)+'px';tip.style.top=y+'px';
+}
+const calEl=$('cal');
+calEl.addEventListener('pointerover',e=>{
+  if(e.pointerType==='touch')return;
+  const n=e.target.closest&&e.target.closest('.ev');
+  if(!n){hideTip();return;}
+  clearTimeout(tipT);tipT=setTimeout(()=>showTip(n),350);
+});
+calEl.addEventListener('pointerleave',hideTip);
+calEl.addEventListener('pointerdown',hideTip);
+calEl.addEventListener('scroll',hideTip,{passive:true});
 const ctx=$('ctx');
 function closeCtx(){if(!ctx.hidden){ctx.hidden=true;ctx.replaceChildren();}}
 function waDirect(a){
