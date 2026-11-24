@@ -190,6 +190,8 @@ dialog::backdrop{background:rgb(8 20 18 / .5)}
 .chk-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);cursor:pointer;margin:0;font-size:14px;font-weight:600}
 .chk-row small{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:2px}
 .chk-row input{width:18px;height:18px;flex:0 0 18px;margin:0}
+.ben-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:520px){.ben-grid{grid-template-columns:1fr}}
 .contato-box{background:var(--surface-2);padding:12px;border:1px solid var(--line);border-radius:8px}
 .tabs{grid-column:1/-1;display:flex;gap:4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .tabs button{border:0;background:transparent;padding:8px 12px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
@@ -1180,6 +1182,9 @@ function openBenef(b,startTab,ctxAg){
     nasc=inp('bNasc','date',b.nascimento),tel=inp('bTel','tel',b.telefone,{placeholder:'(00) 00000-0000'}),end=inp('bEnd','text',b.endereco),bairro=inp('bBairro','text',b.bairro),
     fam=inp('bFam','number',b.familia||1,{min:1,max:30,inputmode:'numeric'}),obs=el('textarea',{id:'bObs',rows:2});obs.value=b.obs||'';
   const cesta=el('input',{type:'checkbox',id:'bCesta'});cesta.checked=!!b.recebeCesta;
+  const BENEFICIOS=[['bolsaFamilia','Bolsa Família'],['bpc','BPC/LOAS'],['tarifaSocial','Tarifa Social de Energia'],['gasDoPovo','Gás do Povo'],['peDeMeia','Pé-de-Meia']];
+  const benCks=BENEFICIOS.map(([k,l])=>{const c=el('input',{type:'checkbox'});c.checked=!!(b.beneficios&&b.beneficios[k]);return [k,c,l];});
+  const benBox=el('div',{class:'f w'},el('label',{text:'Benefícios que recebe'}),el('div',{class:'ben-grid'},...benCks.map(([k,c,l])=>el('label',{class:'chk-row'},c,el('span',null,l)))));
   const contCk=el('input',{type:'checkbox',id:'bTelContato'});contCk.checked=!!b.telefoneDeContato;
   const contNome=inp('bContNome','text',b.contatoNome,{placeholder:'Quem atende este telefone'});
   const contRel=inp('bContRel','text',b.contatoRelacao,{list:'relacoesContato',placeholder:'Ex.: mãe, filho(a), vizinho(a)'});
@@ -1224,7 +1229,7 @@ function openBenef(b,startTab,ctxAg){
     sec('Contato'),telRow,contRow,contBox,
     sec('Endereço'),field('Endereço',end,true),field('Bairro',bairro),
     sec('Família e vínculos'),field('Pessoas na família',fam),el('div',{class:'f w'},el('label',{text:'Mesma família de (opcional)'}),famBox),pVinc,
-    sec('Programa'),el('div',{class:'f w'},el('label',{class:'chk-row'},cesta,el('span',null,'Recebe cesta básica'))),
+    sec('Programa'),el('div',{class:'f w'},el('label',{class:'chk-row'},cesta,el('span',null,'Recebe cesta básica'))),benBox,
     sec('Observações'),field('Observações',obs,true));
   const pHist=el('div',{class:'panel',hidden:true},el('div',{class:'small f w',text:'Carregando…'}));
   const pPront=el('div',{class:'panel',hidden:true});
@@ -1288,6 +1293,7 @@ function openBenef(b,startTab,ctxAg){
     const rec=Object.assign(clean(b),{nome:nome.value.trim(),cpf:cpf.value.trim(),nascimento:nasc.value,telefone:tel.value.trim(),endereco:end.value.trim(),bairro:bairro.value.trim(),
       familia:Math.max(1,Number(fam.value)||1),recebeCesta:cesta.checked,obs:obs.value.trim(),telefoneDeContato:contCk.checked,contatoNome:contCk.checked?contNome.value.trim():'',contatoRelacao:contCk.checked?contRel.value.trim():''});
     const bid=b.id||store.newId('beneficiarios'),ref=famId?S.beneficiarios.get(famId):null;rec.familiaId=ref?(ref.familiaId||ref.id):bid;
+    rec.beneficios=Object.fromEntries(benCks.map(([k,c])=>[k,c.checked]));
     const antigos=vincDe(b),novos=[...new Set(vincs)];rec.vinculos=novos;
     const mexe=(x,f)=>{const o=S.beneficiarios.get(x);if(o)store.set('beneficiarios',x,clean(Object.assign({},o,{vinculos:f(o.vinculos||[])})));};
     novos.filter(x=>!antigos.includes(x)).forEach(x=>mexe(x,v=>[...new Set([...v,bid])]));
