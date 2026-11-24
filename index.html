@@ -1170,8 +1170,8 @@ function openBenef(b,startTab,ctxAg){
   }
   const body=[isNew?null:tabs,pCad,pHist,pPront,errBox()];
   const foot=[isNew?null:el('button',{type:'button',class:'btn',onclick:()=>{store.set('beneficiarios',b.id,clean(Object.assign({},b,{arquivado:!b.arquivado})));dlg.close();toast(b.arquivado?'Beneficiário reativado.':'Beneficiário arquivado. O histórico continua salvo.');}},b.arquivado?'Reativar':'Arquivar'),isNew||!isAdmin?null:delButton(()=>{store.del('beneficiarios',b.id);dlg.close();toast('Beneficiário excluído.');}),el('span',{class:'sp'}),
-    el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Fechar'),el('button',{type:'submit',class:'btn pri'},'Salvar cadastro')];
-  openDlg(isNew?'Novo beneficiário':b.nome,body,foot,()=>{
+    el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Fechar'),el('button',{type:'button',class:'btn',onclick:()=>salvarBenef(true)},'Salvar e adicionar novo'),el('button',{type:'submit',class:'btn pri'},'Salvar cadastro')];
+  const salvarBenef=(novo)=>{
     if(!isNew)show('cad');
     if(!nome.value.trim())return showErr('Informe o nome.');
     const digits=cpf.value.replace(/\D/g,'');
@@ -1185,7 +1185,9 @@ function openBenef(b,startTab,ctxAg){
     novos.filter(x=>!antigos.includes(x)).forEach(x=>mexe(x,v=>[...new Set([...v,bid])]));
     antigos.filter(x=>!novos.includes(x)).forEach(x=>mexe(x,v=>v.filter(y=>y!==bid)));
     store.set('beneficiarios',bid,rec);dlg.close();toast('Beneficiário salvo.');
-  });
+    if(novo){openBenef(null);$('bNome')&&$('bNome').focus();}
+  };
+  openDlg(isNew?'Novo beneficiário':b.nome,body,foot,()=>salvarBenef(false));
   show(isNew?'cad':(startTab||'cad'));
   if(isNew)nome.focus();
 }
