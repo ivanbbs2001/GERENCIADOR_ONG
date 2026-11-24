@@ -217,6 +217,22 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
   .ptabs{flex-wrap:nowrap;overflow-x:auto;max-height:none}
   :root{--gut:44px}
 }
+#undo{position:fixed;left:50%;transform:translateX(-50%);bottom:76px;background:var(--ink);color:var(--bg);padding:9px 10px 9px 16px;border-radius:10px;font-weight:600;font-size:14px;z-index:21;display:flex;gap:12px;align-items:center;max-width:calc(100vw - 32px)}
+.undo-btn{border:1px solid currentColor;background:transparent;color:inherit;border-radius:6px;padding:4px 10px;font-weight:700;cursor:pointer}
+#printArea{display:none}
+@media print{
+  body *{visibility:hidden}
+  #printArea,#printArea *{visibility:visible}
+  #printArea{display:block;position:absolute;left:0;top:0;width:100%;color:#000;background:#fff}
+  #printArea h2{font-size:16pt;margin:0 0 2px}
+  #printArea .sub{font-size:11pt;margin:0 0 10px}
+  #printArea h3{font-size:12pt;margin:16px 0 4px;break-after:avoid}
+  #printArea table{width:100%;border-collapse:collapse;font-size:10.5pt}
+  #printArea th,#printArea td{border-bottom:1px solid #888;padding:6px 4px;text-align:left;vertical-align:top}
+  #printArea th{border-bottom-width:2px}
+  #printArea tr{break-inside:avoid}
+  @page{margin:14mm}
+}
 @media (prefers-reduced-motion:no-preference){.ev{transition:box-shadow .12s}}
 </style>
 </head>
@@ -245,6 +261,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
       <div class="seg" role="group" aria-label="Visualização">
         <button id="mSem" aria-pressed="true">Semana</button><button id="mDia" aria-pressed="false">Dia</button>
       </div>
+      <button class="btn" id="imprimir">Imprimir</button>
       <button class="btn pri" id="newAg">+ Agendar</button>
     </div>
     <div class="ptabs" id="profTabs" role="group" aria-label="Filtrar a semana por profissional"></div>
@@ -296,6 +313,8 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
 <dialog id="dlg"><form class="dlg" id="dlgForm" novalidate></form></dialog>
 <div class="ctx" id="ctx" role="menu" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div id="undo" role="status" hidden></div>
+<div id="printArea" aria-hidden="true"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -338,6 +357,12 @@ const stOptions=cesta=>cesta?[['agendado','A confirmar'],['confirmado','Confirma
 const stLabel=a=>{const o=stOptions(a.tipo==='cesta').find(x=>x[0]===a.status);return o?o[1]:(STATUS[a.status]||'A confirmar');};
 const stClass=s=>({concluido:'ok',faltou:'bad',cancelado:'',confirmado:'acc',agendado:'warn',chegou:'warn',atendendo:'busy'})[s]||'';
 let toastT;function toast(msg){$('toast').textContent=msg;clearTimeout(toastT);toastT=setTimeout(()=>{$('toast').textContent='';},3500);}
+let undoT;
+function avisoDesfazer(msg,voltar){
+  const box=$('undo');$('toast').textContent='';
+  box.replaceChildren(el('span',{text:msg}),el('button',{type:'button',class:'undo-btn',onclick:()=>{box.hidden=true;clearTimeout(undoT);voltar();toast('Desfeito.');}},'Desfazer'));
+  box.hidden=false;clearTimeout(undoT);undoT=setTimeout(()=>{box.hidden=true;},6000);
+}
 
 /* ---------- estado e armazenamento ---------- */
 const S={beneficiarios:new Map(),profissionais:new Map(),agendamentos:new Map(),prontuarios:new Map(),config:{}};
@@ -458,7 +483,7 @@ function pendentes(){
 function openPendentes(){
   const itens=pendentes().map(a=>{
     const p=pOf(a.profissionalId),row=el('div',{class:'row',style:'grid-template-columns:auto minmax(0,1fr) auto'});
-    const marca=st=>()=>{store.set('agendamentos',a.id,clean(Object.assign({},a,{status:st})));row.remove();};
+    const marca=st=>()=>{store.set('agendamentos',a.id,clean(Object.assign({},a,{status:st})));row.remove();avisoDesfazer(bName(a.beneficiarioId)+': '+stLabel(Object.assign({},a,{status:st})),()=>store.set('agendamentos',a.id,clean(a)));};
     row.append(el('span',{class:'small',text:brDate(a.data)+' '+hhmm(a.inicio)}),el('b',{text:bName(a.beneficiarioId)+(p?' · '+p.nome:'')}),
       el('span',{class:'checks'},el('button',{type:'button',class:'btn sm',onclick:marca('concluido')},'Atendido'),
         el('button',{type:'button',class:'btn sm',onclick:marca('faltou')},'Faltou'),el('button',{type:'button',class:'btn sm',onclick:marca('cancelado')},'Desmarcou')));
@@ -467,6 +492,37 @@ function openPendentes(){
   openDlg('Sem situação final',itens.length?itens:[el('div',{class:'f w small',text:'Nenhuma consulta pendente.'})],
     [el('span',{class:'sp'}),el('button',{type:'button',class:'btn pri',onclick:()=>dlg.close()},'Concluir')],()=>dlg.close());
 }
+
+/* impressão da agenda do dia */
+function montarImpressao(chave,dia){
+  const area=$('printArea');
+  const doDia=k=>[...S.agendamentos.values()].filter(a=>a.data===dia&&a.status!=='cancelado'&&(k==='cesta'?a.tipo==='cesta':a.tipo==='consulta'&&a.profissionalId===k)).sort((x,y)=>x.inicio-y.inicio);
+  const grupos=[];
+  if(chave==='todos'){
+    for(const p of sortedProfs()){const l=doDia(p.id);if(l.length)grupos.push({titulo:p.nome,sub:p.especialidade||'',lista:l});}
+    const c=doDia('cesta');if(c.length)grupos.push({titulo:'Cestas básicas',sub:'Entregas',lista:c});
+  }else if(chave==='cesta'){grupos.push({titulo:'Cestas básicas',sub:'Entregas',lista:doDia('cesta')});}
+  else{const p=pOf(chave);grupos.push({titulo:p?p.nome:'Profissional',sub:p?p.especialidade||'':'',lista:doDia(chave)});}
+  const linha=a=>{const b=S.beneficiarios.get(a.beneficiarioId)||{};
+    return el('tr',null,el('td',{text:hhmm(a.inicio)+' – '+hhmm(a.inicio+a.duracao)}),el('td',{text:bName(a.beneficiarioId)+(a.tipo==='cesta'&&a.qtd>1?' ('+a.qtd+' cestas)':'')}),
+      el('td',{text:b.telefone||''}),el('td',{text:stLabel(a)}),el('td',{text:''}));};
+  const blocos=grupos.map(g=>el('div',null,el('h3',{text:g.titulo+(g.sub?' · '+g.sub:'')}),
+    el('table',null,el('thead',null,el('tr',null,el('th',{text:'Horário'}),el('th',{text:'Beneficiário'}),el('th',{text:'Telefone'}),el('th',{text:'Situação'}),el('th',{text:'Anotações'}))),
+      el('tbody',null,g.lista.map(linha)))));
+  area.replaceChildren(el('h2',{text:'Agenda do dia'}),
+    el('p',{class:'sub',text:fmtDay(dia,{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' · '+(chave==='todos'?'Todos os profissionais':chave==='cesta'?'Cestas básicas':(pOf(chave)||{}).nome||'')}),
+    ...(grupos.length?blocos:[el('p',{text:'Nenhum atendimento neste dia.'})]));
+}
+function openImprimir(){
+  const pro=el('select',{id:'imPro'},[el('option',{value:'todos'},'Todos os profissionais'),el('option',{value:'cesta'},'Cestas básicas'),
+    ...sortedProfs().map(p=>el('option',{value:p.id},p.nome+(p.especialidade?' · '+p.especialidade:'')))]);
+  pro.value=ui.mode==='semana'&&ui.weekFilter!=='todos'&&ui.weekFilter!=='cesta'&&pOf(ui.weekFilter)?ui.weekFilter:(ui.weekFilter==='cesta'?'cesta':'todos');
+  const dia=inp('imDia','date',ui.date,{required:true});
+  openDlg('Imprimir agenda do dia',[field('Profissional',pro,true),field('Dia',dia)],
+    [el('span',{class:'sp'}),el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Cancelar'),el('button',{type:'submit',class:'btn pri'},'Imprimir')],
+    ()=>{if(!dia.value)return showErr('Escolha o dia.');montarImpressao(pro.value,dia.value);dlg.close();setTimeout(()=>window.print(),80);});
+}
+$('imprimir').onclick=openImprimir;
 
 /* ---------- nomes ---------- */
 const bName=id=>{const b=S.beneficiarios.get(id);return b?b.nome:(id?'(beneficiário removido)':'(sem beneficiário)');};
@@ -612,7 +668,7 @@ function waDirect(a){
 }
 function setAgStatus(id,st){
   const cur=S.agendamentos.get(id);closeCtx();if(!cur||cur.status===st)return;
-  const next=Object.assign({},cur,{status:st});store.set('agendamentos',id,clean(next));toast(bName(cur.beneficiarioId)+': '+stLabel(next));
+  const next=Object.assign({},cur,{status:st});store.set('agendamentos',id,clean(next));avisoDesfazer(bName(cur.beneficiarioId)+': '+stLabel(next),()=>store.set('agendamentos',id,clean(cur)));
 }
 function openCtx(a,x,y){
   if(!a)return;if(hintEl)hintEl.remove();
@@ -713,7 +769,7 @@ function pedirConfirmacaoMudanca(cur,next,resize){
   openDlg(resize?'Confirmar nova duração':'Confirmar mudança de horário',[...corpo,aviso,err],
     [el('span',{class:'sp'}),el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Cancelar'),el('button',{type:'submit',class:'btn pri'},'Confirmar')],
     ()=>{const c=checar();if(c){err.textContent=c;err.hidden=false;return;}
-      store.set('agendamentos',cur.id,clean(next));dlg.close();toast(resize?'Duração: '+next.duracao+' min':'Movido para '+brDate(next.data)+' às '+hhmm(next.inicio));});
+      store.set('agendamentos',cur.id,clean(next));dlg.close();avisoDesfazer(resize?'Duração: '+next.duracao+' min':'Movido para '+brDate(next.data)+' às '+hhmm(next.inicio),()=>store.set('agendamentos',cur.id,clean(cur)));});
 }
 document.addEventListener('touchmove',e=>{if(drag&&drag.active)e.preventDefault();},{passive:false});
 
