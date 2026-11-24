@@ -5,13 +5,15 @@ Agenda de atendimentos e entrega de cestas básicas para ONG.
 ## O que tem
 
 - **Agenda** por dia (uma coluna por profissional, mais a coluna de cestas) e por semana. Clique em um horário vago para agendar; arraste para mudar horário, profissional ou dia; puxe a borda inferior para mudar a duração.
-- **Beneficiários**: cadastro, histórico de atendimentos e cestas, taxa de não comparecimento e prontuário (apontamentos médicos).
+- **Beneficiários**: cadastro, histórico de atendimentos e cestas, taxa de não comparecimento e prontuário (apontamentos médicos). Telefone com máscara `(00) 00000-0000`, ou número internacional (sem máscara, sem o prefixo 55 no WhatsApp).
+- **Inatividade**: beneficiário sem comparecimento há mais de 8 meses recebe o selo *Inativo* na lista. Comparecimento é consulta com chegada ou atendimento, ou cesta entregue. Se a pessoa já compareceu, o prazo conta do último comparecimento. Se nunca compareceu, conta do último registro passado (falta incluída; desmarcados não contam). Quem não tem nenhum registro passado não é marcado. O filtro *Só inativos* mostra só esses cadastros. A regra não altera o cadastro nem arquiva.
 - **Profissionais**: especialidade, registro, dias de atendimento, duração padrão (30 min, ajustável por profissional).
 - **Cestas**: entregas do mês, com marcação de entregue. Avisa quando a família já recebeu entrega no mês, e quando um beneficiário vinculado tem entrega no mesmo dia ou com menos de 30 dias de diferença. Os avisos não bloqueiam o agendamento.
 - **Famílias e vínculos** (no cadastro do beneficiário): *Mesma família de* agrupa pessoas da mesma família (regra mensal de cestas). *Vínculos* liga pessoas que podem receber cesta juntas ou em datas próximas; o vínculo é gravado nos dois cadastros.
 - **Relatórios**: por mês, com atendimentos, realizados, faltas, taxa de não comparecimento, cestas, famílias e beneficiários atendidos, por especialidade e por profissional. Exporta CSV (separado por ponto e vírgula, abre no Excel).
 - **Backup**: na tela de Auditoria, o administrador baixa um JSON com beneficiários, profissionais, agendamentos, prontuários e usuários. A exportação fica registrada na auditoria. Guarde o arquivo com controle de acesso: contém dados de saúde.
-- **WhatsApp**: link `wa.me` com os horários da semana do beneficiário. Texto editável em Ajustes.
+- **WhatsApp**: link `wa.me` com os horários da semana do beneficiário. Texto editável em Ajustes. Na ficha do beneficiário, o botão *ENVIAR NO WHATS* abre a conversa com as orientações dos benefícios marcados (Bolsa Família, BPC/LOAS, Tarifa Social de Energia, Gás do Povo, Pé-de-Meia). A conversa só é enviada quando você confirmar no WhatsApp.
+- **Busca geral**: campo no cabeçalho, ao lado de Relatórios. Procura beneficiários e profissionais.
 
 ## Como funciona
 
@@ -51,15 +53,16 @@ Para liberar outra pessoa: crie o usuário em Authentication e um documento `usu
 - Sigilo do prontuário por área (hoje toda a equipe clínica lê todos os apontamentos).
 - Adequação à LGPD (dados de saúde são dados sensíveis) e às regras do CFM para prontuário eletrônico.
 - Cópia de segurança automática. Hoje o backup é manual, pela tela de Auditoria. Backup agendado exige o plano Blaze e uma conta de serviço no Google Cloud.
-- Validação de conflitos de horário, cestas por família e vínculos no servidor. Hoje os avisos são feitos no navegador e podem falhar com duas pessoas agendando ao mesmo tempo.
+- Validação de conflitos de horário, cestas por família e vínculos no servidor.
+- Textos de benefícios (requisitos, documentos, passos e canais) são de referência geral. Conferir nas fontes oficiais antes de uso, e revisar periodicamente. Hoje os avisos são feitos no navegador e podem falhar com duas pessoas agendando ao mesmo tempo.
 
 ## Modelo de dados
 
 | Coleção | Campos |
 | --- | --- |
-| `beneficiarios` | nome, cpf, nascimento, telefone, endereco, bairro, familia, familiaId (grupo da família), vinculos[] (IDs de outros beneficiários, gravados nos dois lados), recebeCesta, arquivado, obs |
+| `beneficiarios` | nome, cpf, nascimento, telefone, telefoneInternacional, telefoneDeContato, contatoNome, contatoRelacao, endereco, bairro, familia, familiaId (grupo da família), vinculos[] (IDs de outros beneficiários, gravados nos dois lados), recebeCesta, beneficios (mapa com bolsaFamilia, bpc, tarifaSocial, gasDoPovo, peDeMeia), arquivado, obs |
 | `profissionais` | nome, especialidade, registro, telefone, dias[], cor, ativo, medico, duracaoPadrao |
-| `agendamentos` | tipo (`consulta` ou `cesta`), data, inicio (min), duracao (min), beneficiarioId, profissionalId, status, obs, qtd |
+| `agendamentos` | tipo (`consulta` ou `cesta`), data, inicio (min), duracao (min), beneficiarioId, profissionalId, status, obs, qtd, criadoEm (data em que o agendamento foi feito; não é a data da consulta) |
 | `prontuarios` | beneficiarioId, profissionalId, agendamentoId, quando, texto, autorId |
 | `config/geral` | ong, msg |
 | `usuarios` | papel (`admin`, `clinico`, `recepcao`), nome (opcional) |

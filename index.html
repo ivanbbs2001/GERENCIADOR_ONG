@@ -352,6 +352,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
       <h2>Beneficiários <small id="bCount"></small></h2>
       <input type="search" id="bSearch" placeholder="Buscar por nome, CPF ou telefone" aria-label="Buscar beneficiário">
       <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="bArq"> Mostrar arquivados</label>
+      <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="bInat"> Só inativos (8+ meses)</label>
       <button class="btn pri" id="newB">+ Novo beneficiário</button>
     </div>
     <div class="list" id="bList"></div>
@@ -457,7 +458,7 @@ function avisoDesfazer(msg,voltar){
 /* ---------- estado e armazenamento ---------- */
 const S={beneficiarios:new Map(),profissionais:new Map(),agendamentos:new Map(),prontuarios:new Map(),config:{}};
 let canEdit=false,isAdmin=false,uid='',userEmail='';
-const ui={view:'agenda',date:todayISO(),mode:'semana',weekFilter:'todos',dayFilter:'cesta',search:'',arq:false};
+const ui={view:'agenda',date:todayISO(),mode:'semana',weekFilter:'todos',dayFilter:'cesta',search:'',arq:false,inat:false};
 let db=null,storeMode='loading',agUnsub=null,agWin='',drag=null,pendingRender=false,loaded={b:false,p:false,a:false};
 
 const store={
@@ -1513,10 +1514,12 @@ function beneficiosInativos(){
 }
 function renderBenef(){
   const t=norm(ui.search),all=[...S.beneficiarios.values()].filter(b=>ui.arq||!b.arquivado).sort((a,b)=>norm(a.nome).localeCompare(norm(b.nome)));
-  const list=t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')+' '+(b.telefone||'').replace(/\D/g,'')+' '+(b.bairro||'')).includes(t)):all;
-  $('bCount').textContent=all.length?(list.length===all.length?all.length+' cadastrados':list.length+' de '+all.length):'';
-  const box=$('bList'),inat=beneficiosInativos();
-  if(!list.length){box.replaceChildren(el('div',{class:'empty'},el('h3',{text:all.length?'Nenhum resultado para a busca':'Nenhum beneficiário cadastrado'}),all.length?'Confira a grafia ou busque por CPF ou telefone.':'Use “Novo beneficiário” para começar o cadastro. Também dá para cadastrar direto na tela de agendamento.'));return;}
+  let list=t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')+' '+(b.telefone||'').replace(/\D/g,'')+' '+(b.bairro||'')).includes(t)):all;
+  const inat=beneficiosInativos();
+  if(ui.inat)list=list.filter(b=>inat.has(b.id)&&!b.arquivado);
+  $('bCount').textContent=all.length?(ui.inat?list.length+' inativos de '+all.length:list.length===all.length?all.length+' cadastrados':list.length+' de '+all.length):'';
+  const box=$('bList');
+  if(!list.length){box.replaceChildren(el('div',{class:'empty'},el('h3',{text:ui.inat&&all.length?'Nenhum beneficiário inativo':all.length?'Nenhum resultado para a busca':'Nenhum beneficiário cadastrado'}),all.length?'Confira a grafia ou busque por CPF ou telefone.':'Use “Novo beneficiário” para começar o cadastro. Também dá para cadastrar direto na tela de agendamento.'));return;}
   box.replaceChildren(...list.slice(0,400).map(b=>el('button',{class:'row',type:'button',onclick:()=>openBenef(b)},
     el('b',{text:b.nome}),el('span',{text:[b.telefone,idade(b.nascimento)].filter(Boolean).join(' · ')||'Sem telefone'}),
     el('span',{text:[b.bairro,(b.familia||1)+(b.familia>1?' pessoas na família':' pessoa na família')].filter(Boolean).join(' · ')}),
@@ -1577,6 +1580,7 @@ $('mSem').onclick=()=>{ui.mode='semana';render();};
 $('newAg').onclick=()=>{const n=new Date(),m=Math.min(END-SLOT,Math.max(START,Math.ceil((n.getHours()*60+n.getMinutes())/30)*30));newAt(ui.mode==='dia'?ui.dayFilter:ui.date,m);};
 $('newB').onclick=()=>openBenef(null);
 $('bArq').onchange=e=>{ui.arq=e.target.checked;renderBenef();};
+$('bInat').onchange=e=>{ui.inat=e.target.checked;renderBenef();};
 $('cfgBtn').onclick=openCfg;
 const TEMA_KEY='agenda-tema';
 function aplicaTema(t){document.documentElement.dataset.theme=t;$('thBtn').textContent=t==='light'?'Escuro':'Claro';}
