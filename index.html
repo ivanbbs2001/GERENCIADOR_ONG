@@ -9,29 +9,23 @@
 <style>
 /* Layout: cabeçalho fixo, área de trabalho rolável, grade de horários com colunas por profissional (dia) ou por dia (semana). */
 :root{
-  --bg:#f3f6f5; --surface:#ffffff; --surface-2:#e9efed; --ink:#12302d; --muted:#5b716e; --line:#d5dfdc; --line-soft:#e7edeb;
-  --accent:#0b6e66; --accent-ink:#ffffff; --accent-soft:#d9efec;
-  --busy:#6d3fc4; --busy-bg:#ebe3fb; --warn:#9a5b00; --warn-bg:#fdf0d3; --bad:#a3322b; --bad-bg:#fbe3e0; --ok:#1d6b3a; --ok-bg:#dcf2e3;
-  --ev-s:62%; --ev-l:91%; --ev-ink-l:22%; --ev-bar-l:42%;
+  color-scheme:dark;
   --font-display:"Bricolage Grotesque","Trebuchet MS",sans-serif;
   --font-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
   --slot:44px; --gut:52px;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    color-scheme:dark;
-    --bg:#0e1716; --surface:#16211f; --surface-2:#1e2c2a; --ink:#e3eeec; --muted:#93a9a5; --line:#2c3d3a; --line-soft:#223230;
-    --accent:#4fc4b8; --accent-ink:#06211e; --accent-soft:#17403b;
-    --busy:#b79cf5; --busy-bg:#2c2147; --warn:#f0c067; --warn-bg:#3a2d10; --bad:#f29a92; --bad-bg:#3d1c19; --ok:#86d6a2; --ok-bg:#163523;
-    --ev-s:38%; --ev-l:22%; --ev-ink-l:88%; --ev-bar-l:62%;
-  }
-}
-:root[data-theme="dark"]{
-  color-scheme:dark;
   --bg:#0e1716; --surface:#16211f; --surface-2:#1e2c2a; --ink:#e3eeec; --muted:#93a9a5; --line:#2c3d3a; --line-soft:#223230;
   --accent:#4fc4b8; --accent-ink:#06211e; --accent-soft:#17403b;
-  --busy:#b79cf5; --busy-bg:#2c2147; --warn:#f0c067; --warn-bg:#3a2d10; --bad:#f29a92; --bad-bg:#3d1c19; --ok:#86d6a2; --ok-bg:#163523;
+  --warn:#f0c067; --warn-bg:#3a2d10; --bad:#f29a92; --bad-bg:#3d1c19; --ok:#86d6a2; --ok-bg:#163523;
+  --busy:#b79cf5; --busy-bg:#2c2147;
   --ev-s:38%; --ev-l:22%; --ev-ink-l:88%; --ev-bar-l:62%;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f3f6f5; --surface:#ffffff; --surface-2:#e9efed; --ink:#12302d; --muted:#5b716e; --line:#d5dfdc; --line-soft:#e7edeb;
+  --accent:#0b6e66; --accent-ink:#ffffff; --accent-soft:#d9efec;
+  --warn:#9a5b00; --warn-bg:#fdf0d3; --bad:#a3322b; --bad-bg:#fbe3e0; --ok:#1d6b3a; --ok-bg:#dcf2e3;
+  --busy:#6d3fc4; --busy-bg:#ebe3fb;
+  --ev-s:62%; --ev-l:91%; --ev-ink-l:22%; --ev-bar-l:42%;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -248,6 +242,8 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
   <span class="status" id="status" role="status">Carregando…</span>
   <button class="gear" id="cfgBtn" type="button">Ajustes</button>
   <button class="gear" id="outBtn" type="button" hidden>Sair</button>
+  <button class="gear" id="audBtn" type="button" hidden>Auditoria</button>
+  <button class="gear" id="thBtn" type="button">Claro</button>
 </header>
 <div id="banners"></div>
 <main>
@@ -366,19 +362,21 @@ function avisoDesfazer(msg,voltar){
 
 /* ---------- estado e armazenamento ---------- */
 const S={beneficiarios:new Map(),profissionais:new Map(),agendamentos:new Map(),prontuarios:new Map(),config:{}};
-let canEdit=false,isAdmin=false,uid='';
+let canEdit=false,isAdmin=false,uid='',userEmail='';
 const ui={view:'agenda',date:todayISO(),mode:'semana',weekFilter:'todos',search:'',arq:false};
 let db=null,storeMode='loading',agUnsub=null,agWin='',drag=null,pendingRender=false,loaded={b:false,p:false,a:false};
 
 const store={
   newId(col){return db?db.collection(col).doc().id:'m'+Math.random().toString(36).slice(2,11);},
   async set(col,id,data){
+    const antes=S[col].get(id);auditar(antes?'alterar':'criar',col,id,antes||{},data);
     S[col].set(id,Object.assign({},data,{id}));render();
     if(!db)return true;
     try{await db.collection(col).doc(id).set(data);return true;}
     catch(e){toast(e&&e.code==='permission-denied'?'Seu perfil não tem permissão para alterar isto.':'Não foi possível salvar. Tente de novo.');return false;}
   },
   async del(col,id){
+    const antesD=S[col].get(id);if(antesD)auditar('excluir',col,id,antesD,{});
     S[col].delete(id);render();
     if(!db)return;
     try{await db.collection(col).doc(id).delete();}catch(e){toast('Não foi possível excluir. Tente de novo.');}
@@ -412,7 +410,7 @@ const AUTH_MSG={'auth/invalid-credential':'E-mail ou senha incorretos.','auth/wr
 function init(){
   render();
   const cfg=window.FIREBASE_CONFIG;
-  if(!window.firebase||!cfg||!cfg.apiKey||/COLE_AQUI/.test(cfg.apiKey)){storeMode='mem';canEdit=true;isAdmin=true;setStatus('Demonstração');loadExamples();renderBanners();return;}
+  if(!window.firebase||!cfg||!cfg.apiKey||/COLE_AQUI/.test(cfg.apiKey)){storeMode='mem';canEdit=true;isAdmin=true;$('audBtn').hidden=false;setStatus('Demonstração');loadExamples();renderBanners();return;}
   firebase.initializeApp(cfg);
   const auth=firebase.auth(),fs=firebase.firestore();
   let started=false;
@@ -430,7 +428,7 @@ function init(){
     uid=u.uid;let me=null;
     try{me=await fs.doc('usuarios/'+u.uid).get();}catch(e){}
     if(!me||!me.exists||!PAPEIS[me.data().papel]){gate('pending','Sua conta ('+u.email+') ainda não foi liberada. Peça à administração para liberar o acesso informando este código: '+u.uid);return;}
-    papel=me.data().papel;canEdit=papel==='admin'||papel==='clinico';isAdmin=papel==='admin';
+    papel=me.data().papel;canEdit=papel==='admin'||papel==='clinico';isAdmin=papel==='admin';userEmail=u.email||'';$('audBtn').hidden=!isAdmin;
     gate('off');$('outBtn').hidden=false;
     if(started)return;started=true;db=fs;storeMode='db';setStatus('Sincronizando…');
     const done=()=>setStatus(PAPEIS[papel]+' · '+(u.email||''));
@@ -523,6 +521,38 @@ function openImprimir(){
     ()=>{if(!dia.value)return showErr('Escolha o dia.');montarImpressao(pro.value,dia.value);dlg.close();setTimeout(()=>window.print(),80);});
 }
 $('imprimir').onclick=openImprimir;
+
+/* ---------- auditoria ---------- */
+const AUD=[];
+const CAMPOS_AUD=['status','data','inicio','duracao','profissionalId','beneficiarioId','tipo','qtd','arquivado','ativo','medico','duracaoPadrao','recebeCesta','familia'];
+function auditar(acao,col,id,antes,depois){
+  const reserva=col==='prontuarios';
+  const chaves=[...new Set([...Object.keys(antes||{}),...Object.keys(depois||{})])].filter(k=>k!=='id');
+  const iguais=(x,y)=>{try{return JSON.stringify(x)===JSON.stringify(y);}catch(e){return false;}};
+  const mud=reserva?Object.keys(depois||{}):chaves.filter(k=>!iguais((antes||{})[k],(depois||{})[k]));
+  if(acao==='alterar'&&!mud.length)return;
+  const valores={};
+  if(!reserva)for(const k of mud)if(CAMPOS_AUD.includes(k))valores[k]={de:(antes||{})[k]??null,para:(depois||{})[k]??null};
+  const rec={uid:uid||'',email:userEmail||'',papel:papel||(isAdmin?'admin':''),acao,colecao:col,docId:id,campos:mud,valores};
+  if(!db){AUD.unshift(Object.assign({quando:new Date().toISOString()},rec));return;}
+  db.collection('auditoria').add(Object.assign({quando:serverNow()},rec)).catch(()=>{});
+}
+async function openAud(){
+  const lista=el('div',{class:'f w'},el('div',{class:'small',text:'Carregando…'}));
+  openDlg('Auditoria · últimos 200 registros',[lista],[el('span',{class:'sp'}),el('button',{type:'button',class:'btn pri',onclick:()=>dlg.close()},'Fechar')],()=>dlg.close());
+  let docs;
+  try{docs=db?(await db.collection('auditoria').orderBy('quando','desc').limit(200).get()).docs.map(d=>d.data()):AUD.slice(0,200);}
+  catch(e){lista.replaceChildren(el('div',{class:'msg err',text:'Não foi possível carregar a auditoria. Verifique se sua conta é de administração.'}));return;}
+  const nomeCol={agendamentos:'Agendamento',beneficiarios:'Beneficiário',profissionais:'Profissional',prontuarios:'Prontuário'};
+  const acaoTxt={criar:'criou',alterar:'alterou',excluir:'excluiu'};
+  const valTxt=v=>v===null||v===undefined?'—':(typeof v==='object'?JSON.stringify(v):String(v));
+  lista.replaceChildren(...(docs.length?docs.map(r=>{
+    const d=r.quando?(r.quando.toDate?r.quando.toDate():new Date(r.quando)):null;
+    const mudou=Object.entries(r.valores||{}).map(([k,v])=>k+': '+valTxt(v.de)+' → '+valTxt(v.para)).join('; ');
+    return el('div',{class:'note'},el('header',{text:(d?d.toLocaleString('pt-BR'):'agora')+' · '+(r.email||'(sem e-mail)')+' ('+(PAPEIS[r.papel]||r.papel||'—')+')'}),
+      el('p',{text:(acaoTxt[r.acao]||r.acao)+' '+(nomeCol[r.colecao]||r.colecao)+' '+(r.docId||'')+(mudou?' — '+mudou:(r.campos&&r.campos.length?' — campos: '+r.campos.join(', '):''))}));
+  }):[el('div',{class:'small',text:'Nenhum registro ainda.'})]));
+}
 
 /* ---------- nomes ---------- */
 const bName=id=>{const b=S.beneficiarios.get(id);return b?b.nome:(id?'(beneficiário removido)':'(sem beneficiário)');};
@@ -1101,6 +1131,11 @@ $('newAg').onclick=()=>{const n=new Date(),m=Math.min(END-SLOT,Math.max(START,Ma
 $('newB').onclick=()=>openBenef(null);
 $('bArq').onchange=e=>{ui.arq=e.target.checked;renderBenef();};
 $('cfgBtn').onclick=openCfg;
+const TEMA_KEY='agenda-tema';
+function aplicaTema(t){document.documentElement.dataset.theme=t;$('thBtn').textContent=t==='light'?'Escuro':'Claro';}
+aplicaTema((()=>{try{return localStorage.getItem(TEMA_KEY)||'dark';}catch(e){return'dark';}})());
+$('thBtn').onclick=()=>{const n=document.documentElement.dataset.theme==='light'?'dark':'light';try{localStorage.setItem(TEMA_KEY,n);}catch(e){}aplicaTema(n);};
+$('audBtn').onclick=openAud;
 $('newP').onclick=()=>openProf(null);
 $('newC').onclick=()=>openAg({tipo:'cesta',data:ui.date.slice(0,7)===todayISO().slice(0,7)?todayISO():ui.date.slice(0,7)+'-01',inicio:9*60,duracao:30,beneficiarioId:'',profissionalId:'',status:'agendado'});
 const shiftMonth=n=>{const d=parse(ui.date.slice(0,7)+'-01');d.setMonth(d.getMonth()+n);setDate(iso(d));};

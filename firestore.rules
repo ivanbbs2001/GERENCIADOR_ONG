@@ -25,6 +25,17 @@ service cloud.firestore {
     }
     // Prontuário: só equipe clínica lê. Cada apontamento é criado pelo próprio
     // autor, com horário do servidor, e não pode ser alterado nem apagado.
+    // Auditoria: quem registra é o próprio usuário, com horário do servidor. Ninguém altera ou apaga.
+    match /auditoria/{id} {
+      allow read: if admin();
+      allow create: if membro()
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'papel', 'acao', 'colecao', 'docId', 'campos', 'valores', 'quando'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.papel == papel()
+        && request.resource.data.quando == request.time
+        && request.resource.data.acao in ['criar', 'alterar', 'excluir'];
+      allow update, delete: if false;
+    }
     match /prontuarios/{id} {
       allow read: if clinico();
       allow create: if clinico()

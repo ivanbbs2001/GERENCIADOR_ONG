@@ -43,6 +43,7 @@ Para liberar outra pessoa: crie o usuário em Authentication e um documento `usu
 
 ## Pendências antes de usar com dados reais
 
+- Auditoria gravada pelo próprio navegador: quem contorna o sistema pode deixar de registrar. A solução definitiva é uma Cloud Function que grave a auditoria no servidor.
 - Tela de administração de usuários (hoje os perfis são criados pelo Firebase Console).
 - Sigilo do prontuário por área (hoje toda a equipe clínica lê todos os apontamentos).
 - Adequação à LGPD (dados de saúde são dados sensíveis) e às regras do CFM para prontuário eletrônico.
@@ -58,3 +59,4 @@ Para liberar outra pessoa: crie o usuário em Authentication e um documento `usu
 | `prontuarios` | beneficiarioId, profissionalId, agendamentoId, quando, texto, autorId |
 | `config/geral` | ong, msg |
 | `usuarios` | papel (`admin`, `clinico`, `recepcao`), nome (opcional) |
+| `auditoria` | uid, email, papel, acao (`criar`, `alterar`, `excluir`), colecao, docId, campos, valores (só campos de situação e horário), quando (servidor) |
