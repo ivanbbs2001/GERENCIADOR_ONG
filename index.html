@@ -546,7 +546,7 @@ $('imprimir').onclick=openImprimir;
 
 /* ---------- auditoria ---------- */
 const AUD=[];
-const CAMPOS_AUD=['status','data','inicio','duracao','profissionalId','beneficiarioId','tipo','qtd','arquivado','ativo','medico','duracaoPadrao','recebeCesta','familia'];
+const CAMPOS_AUD=['status','data','inicio','duracao','profissionalId','beneficiarioId','tipo','qtd','arquivado','ativo','medico','duracaoPadrao','recebeCesta','familia','vinculos'];
 function auditar(acao,col,id,antes,depois){
   const reserva=col==='prontuarios';
   const chaves=[...new Set([...Object.keys(antes||{}),...Object.keys(depois||{})])].filter(k=>k!=='id');
@@ -583,6 +583,30 @@ function famDup(list){
   const c={};list.filter(a=>a.status!=='cancelado').forEach(a=>{const f=familiaOf(a);c[f]=(c[f]||0)+1;});
   const n=Object.values(c).filter(v=>v>1).length;
   return n?el('span',{class:'pill bad',text:n+(n>1?' famílias com mais de uma entrega':' família com mais de uma entrega')+' no mês'}):null;
+}
+/* ---------- vínculos entre beneficiários ---------- */
+const JANELA_VINC=30; // dias
+const vincDe=b=>b?[...new Set([...(b.vinculos||[]),...[...S.beneficiarios.values()].filter(x=>(x.vinculos||[]).includes(b.id)).map(x=>x.id)])].filter(id=>id!==b.id&&S.beneficiarios.has(id)):[];
+const diasEntre=(a,b)=>Math.round(Math.abs(parse(a)-parse(b))/864e5);
+function avisoVinculos(benefId,dataISO,excluiId){
+  const bb=S.beneficiarios.get(benefId);if(!bb||!dataISO)return [];
+  const out=[];
+  for(const lid of vincDe(bb)){
+    [...S.agendamentos.values()].filter(x=>x.id!==excluiId&&x.tipo==='cesta'&&x.beneficiarioId===lid&&x.status!=='cancelado'&&x.status!=='faltou'&&x.data&&diasEntre(x.data,dataISO)<JANELA_VINC)
+      .sort((x,y)=>diasEntre(x.data,dataISO)-diasEntre(y.data,dataISO))
+      .forEach(x=>{const d=diasEntre(x.data,dataISO);
+        out.push('Vinculado(a) a '+bName(benefId)+': '+bName(lid)+' tem cesta '+(d===0?'no mesmo dia.':'em '+brDate(x.data)+' ('+d+(d===1?' dia':' dias')+' de diferença).'));});
+  }
+  return out;
+}
+function paresVinc(list){
+  const ok=list.filter(a=>a.status!=='cancelado'&&a.status!=='faltou');
+  const todos=[...S.agendamentos.values()].filter(a=>a.tipo==='cesta'&&a.status!=='cancelado'&&a.status!=='faltou');
+  const keys=new Set();
+  for(const a of ok)for(const lid of vincDe(S.beneficiarios.get(a.beneficiarioId))){
+    if(todos.some(x=>x.id!==a.id&&x.beneficiarioId===lid&&diasEntre(x.data,a.data)<JANELA_VINC))keys.add([a.beneficiarioId,lid].sort().join('|'));
+  }
+  return keys.size;
 }
 let repTok=0;
 async function agendamentosDoMes(ym){
@@ -1013,6 +1037,8 @@ function openAg(src){
       if(bb&&!bb.recebeCesta)msg='Este beneficiário não está marcado como recebendo cesta básica (cadastro, Programa).';
       const dup=[...S.agendamentos.values()].find(x=>x.id!==a.id&&x.tipo==='cesta'&&x.status!=='cancelado'&&x.data.slice(0,7)===mes&&familiaOf(x)===fam);
       if(!msg&&dup)msg='A família já tem entrega neste mês ('+brDate(dup.data)+', '+bName(dup.beneficiarioId)+'). Confirme se for intencional.';
+      const vs=avisoVinculos(benefId,data.value||a.data,a.id);
+      if(vs.length)msg=[msg,...vs].filter(Boolean).join(' ');
     }
     warn.textContent=msg;warn.hidden=!msg;
   }
@@ -1070,9 +1096,17 @@ function openBenef(b,startTab,ctxAg){
   const outros=[...S.beneficiarios.values()].filter(x=>x.id!==b.id&&!x.arquivado).sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));
   const famSel=el('select',{id:'bFamSel'},[el('option',{value:''},'Família própria'),...outros.map(x=>el('option',{value:x.id},x.nome+(x.familiaId&&x.familiaId!==x.id?' (já em família)':'')))]);
   famSel.value=(b.familiaId&&b.familiaId!==b.id)?((outros.find(x=>x.familiaId===b.familiaId)||{}).id||''):'';
+  const vincs=[...vincDe(b)];
+  const vincSel=el('select',{id:'bVincSel'},[el('option',{value:''},'Escolha uma pessoa…'),...outros.map(x=>el('option',{value:x.id},x.nome))]);
+  const vincBox=el('div',{class:'stats',id:'bVincBox'});
+  const drawVinc=()=>{vincBox.replaceChildren(...(vincs.length?vincs.map(id=>el('span',{class:'pill acc'},bName(id)+' ',el('button',{type:'button',class:'btn',onclick:()=>{const i=vincs.indexOf(id);if(i>=0)vincs.splice(i,1);drawVinc();}},'Remover'))):[el('span',{class:'small',text:'Nenhum vínculo.'})]));};
+  const addVinc=el('button',{type:'button',class:'btn',onclick:()=>{const v=vincSel.value;if(v&&!vincs.includes(v))vincs.push(v);vincSel.value='';drawVinc();}},'Adicionar vínculo');
+  drawVinc();
+  const pVinc=el('div',{class:'f w'},el('label',{text:'Vínculos com outros beneficiários'}),el('div',{class:'stats'},vincSel,addVinc),vincBox,
+    el('div',{class:'small',text:'Use para pessoas que podem receber cesta juntas ou com pouca diferença de datas (ex.: mesma casa, parentes). Ao agendar uma cesta, o sistema avisa se algum vinculado tiver entrega em menos de '+JANELA_VINC+' dias.'}));
   const pCad=el('div',{class:'panel'},field('Nome completo',nome,true),field('CPF',cpf),field('Data de nascimento',nasc),field('Telefone (com DDD)',tel),field('Pessoas na família',fam),field('Mesma família de (opcional)',famSel,true),
     field('Endereço',end,true),field('Bairro',bairro),el('div',{class:'f'},el('label',{text:'Programa'}),el('div',{class:'checks'},el('label',null,cesta,'Recebe cesta básica'))),
-    field('Observações',obs,true));
+    pVinc,field('Observações',obs,true));
   const pHist=el('div',{class:'panel',hidden:true},el('div',{class:'small f w',text:'Carregando…'}));
   const pPront=el('div',{class:'panel',hidden:true});
   const panels={cad:pCad,hist:pHist,pront:pPront},tabs=el('div',{class:'tabs',role:'tablist'});
@@ -1131,10 +1165,13 @@ function openBenef(b,startTab,ctxAg){
     const digits=cpf.value.replace(/\D/g,'');
     if(digits&&digits.length!==11)return showErr('O CPF precisa ter 11 dígitos.');
     if(digits){const dup=[...S.beneficiarios.values()].find(x=>x.id!==b.id&&(x.cpf||'').replace(/\D/g,'')===digits);if(dup)return showErr('Este CPF já está cadastrado para '+dup.nome+'.');}
-    const rec={nome:nome.value.trim(),cpf:cpf.value.trim(),nascimento:nasc.value,telefone:tel.value.trim(),endereco:end.value.trim(),bairro:bairro.value.trim(),
-      familia:Math.max(1,Number(fam.value)||1),recebeCesta:cesta.checked,obs:obs.value.trim()};
-    if(b.exemplo)rec.exemplo=true;
+    const rec=Object.assign(clean(b),{nome:nome.value.trim(),cpf:cpf.value.trim(),nascimento:nasc.value,telefone:tel.value.trim(),endereco:end.value.trim(),bairro:bairro.value.trim(),
+      familia:Math.max(1,Number(fam.value)||1),recebeCesta:cesta.checked,obs:obs.value.trim()});
     const bid=b.id||store.newId('beneficiarios'),ref=famSel.value?S.beneficiarios.get(famSel.value):null;rec.familiaId=ref?(ref.familiaId||ref.id):bid;
+    const antigos=vincDe(b),novos=[...new Set(vincs)];rec.vinculos=novos;
+    const mexe=(x,f)=>{const o=S.beneficiarios.get(x);if(o)store.set('beneficiarios',x,clean(Object.assign({},o,{vinculos:f(o.vinculos||[])})));};
+    novos.filter(x=>!antigos.includes(x)).forEach(x=>mexe(x,v=>[...new Set([...v,bid])]));
+    antigos.filter(x=>!novos.includes(x)).forEach(x=>mexe(x,v=>v.filter(y=>y!==bid)));
     store.set('beneficiarios',bid,rec);dlg.close();toast('Beneficiário salvo.');
   });
   show(isNew?'cad':(startTab||'cad'));
@@ -1214,9 +1251,10 @@ function renderCestas(){
   $('cTitle').textContent='Cestas de '+parse(ym+'-01').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   const list=[...S.agendamentos.values()].filter(a=>a.tipo==='cesta'&&a.data.slice(0,7)===ym).sort((a,b)=>(a.data+pad(a.inicio)).localeCompare(b.data+pad(b.inicio)));
   const q=f=>list.filter(f).reduce((n,a)=>n+(a.qtd||1),0);
-  $('cSum').replaceChildren(el('span',{class:'pill ok',text:q(a=>a.status==='concluido')+' entregues'}),
+  $('cSum').replaceChildren(...[el('span',{class:'pill ok',text:q(a=>a.status==='concluido')+' entregues'}),
     el('span',{class:'pill warn',text:q(a=>a.status==='agendado'||a.status==='confirmado')+' a entregar'}),
-    el('span',{class:'pill bad',text:q(a=>a.status==='faltou')+' não retiradas'}),famDup(list));
+    el('span',{class:'pill bad',text:q(a=>a.status==='faltou')+' não retiradas'}),famDup(list),
+    (n=>n?el('span',{class:'pill warn',text:n+(n>1?' pares vinculados recebem':' par vinculado recebe')+' cesta com menos de '+JANELA_VINC+' dias de diferença'}):null)(paresVinc(list))].filter(Boolean));
   const box=$('cList');
   if(!list.length){box.replaceChildren(el('div',{class:'empty'},el('h3',{text:'Nenhuma entrega neste mês'}),'Agende entregas por aqui ou clicando na coluna “Cestas básicas” da agenda.'));return;}
   const nodes=[];let last='';
