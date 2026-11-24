@@ -256,6 +256,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
     <div class="bar">
       <h2>Beneficiários <small id="bCount"></small></h2>
       <input type="search" id="bSearch" placeholder="Buscar por nome, CPF ou telefone" aria-label="Buscar beneficiário">
+      <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="bArq"> Mostrar arquivados</label>
       <button class="btn pri" id="newB">+ Novo beneficiário</button>
     </div>
     <div class="list" id="bList"></div>
@@ -328,6 +329,7 @@ const inferMed=(esp,reg)=>/^\s*crm/i.test(reg||'')||MED_ESP.includes(norm(esp).t
 const isMed=p=>!!p&&(typeof p.medico==='boolean'?p.medico:inferMed(p.especialidade,p.registro));
 const durPadrao=p=>p?(Number(p.duracaoPadrao)||30):30;
 const MSG_PADRAO='Olá, {nome}! Aqui é da {ong}. Seus horários nesta semana:\n{horarios}\nSe não puder comparecer, avise por esta conversa.';
+const PEND_ST=['agendado','confirmado','chegou','atendendo'];
 const STATUS={agendado:'A confirmar',confirmado:'Confirmado',cancelado:'Desmarcou',chegou:'Paciente chegou',atendendo:'Em atendimento',concluido:'Atendido',faltou:'Faltou'};
 const ST_COLOR={agendado:'var(--line)',confirmado:'var(--accent)',cancelado:'var(--muted)',chegou:'var(--warn)',atendendo:'var(--busy)',concluido:'var(--ok)',faltou:'var(--bad)'};
 const ST_MARK={confirmado:'✓ ',chegou:'● ',atendendo:'▶ ',concluido:'✓✓ ',faltou:'✕ '};
@@ -339,8 +341,8 @@ let toastT;function toast(msg){$('toast').textContent=msg;clearTimeout(toastT);t
 
 /* ---------- estado e armazenamento ---------- */
 const S={beneficiarios:new Map(),profissionais:new Map(),agendamentos:new Map(),prontuarios:new Map(),config:{}};
-let canEdit=false,uid='';
-const ui={view:'agenda',date:todayISO(),mode:'semana',weekFilter:'todos',search:''};
+let canEdit=false,isAdmin=false,uid='';
+const ui={view:'agenda',date:todayISO(),mode:'semana',weekFilter:'todos',search:'',arq:false};
 let db=null,storeMode='loading',agUnsub=null,agWin='',drag=null,pendingRender=false,loaded={b:false,p:false,a:false};
 
 const store={
@@ -371,6 +373,8 @@ function setStatus(t){$('status').textContent=t;}
 
 let papel='';
 const PAPEIS={admin:'Administração',clinico:'Equipe clínica',recepcao:'Recepção'};
+const serverNow=()=>(window.firebase&&firebase.firestore)?firebase.firestore.FieldValue.serverTimestamp():new Date().toISOString();
+const tsMs=q=>q?(q.toDate?q.toDate().getTime():new Date(q).getTime()):0;
 function gate(mode,msg){
   const g=$('gate');g.hidden=mode==='off';if(mode==='off')return;
   const login=mode==='login';
@@ -383,7 +387,7 @@ const AUTH_MSG={'auth/invalid-credential':'E-mail ou senha incorretos.','auth/wr
 function init(){
   render();
   const cfg=window.FIREBASE_CONFIG;
-  if(!window.firebase||!cfg||!cfg.apiKey||/COLE_AQUI/.test(cfg.apiKey)){storeMode='mem';canEdit=true;setStatus('Demonstração');loadExamples();renderBanners();return;}
+  if(!window.firebase||!cfg||!cfg.apiKey||/COLE_AQUI/.test(cfg.apiKey)){storeMode='mem';canEdit=true;isAdmin=true;setStatus('Demonstração');loadExamples();renderBanners();return;}
   firebase.initializeApp(cfg);
   const auth=firebase.auth(),fs=firebase.firestore();
   let started=false;
@@ -401,7 +405,7 @@ function init(){
     uid=u.uid;let me=null;
     try{me=await fs.doc('usuarios/'+u.uid).get();}catch(e){}
     if(!me||!me.exists||!PAPEIS[me.data().papel]){gate('pending','Sua conta ('+u.email+') ainda não foi liberada. Peça à administração para liberar o acesso informando este código: '+u.uid);return;}
-    papel=me.data().papel;canEdit=papel==='admin'||papel==='clinico';
+    papel=me.data().papel;canEdit=papel==='admin'||papel==='clinico';isAdmin=papel==='admin';
     gate('off');$('outBtn').hidden=false;
     if(started)return;started=true;db=fs;storeMode='db';setStatus('Sincronizando…');
     const done=()=>setStatus(PAPEIS[papel]+' · '+(u.email||''));
@@ -439,8 +443,29 @@ async function removeExamples(){
 function hasExamples(){for(const c of['beneficiarios','profissionais','agendamentos'])for(const x of S[c].values())if(x.exemplo)return true;return false;}
 function renderBanners(){
   const box=$('banners');box.replaceChildren();
+  const pend=pendentes();
+  if(pend.length)box.append(el('div',{class:'banner'},pend.length+(pend.length>1?' consultas passadas sem situação final.':' consulta passada sem situação final.'),el('button',{type:'button',onclick:openPendentes},'Revisar')));
   if(storeMode==='mem')box.append(el('div',{class:'banner'},'Modo demonstração: o Firebase ainda não foi configurado (arquivo firebase-config.js), então nada do que você fizer aqui fica salvo.'));
   else if(hasExamples())box.append(el('div',{class:'banner'},'Há registros de exemplo misturados aos dados.',el('button',{type:'button',onclick:removeExamples},'Remover exemplos')));
+}
+
+/* consultas passadas sem situação final */
+function pendentes(){
+  const now=new Date(),hoje=todayISO(),nm=now.getHours()*60+now.getMinutes();
+  return [...S.agendamentos.values()].filter(a=>a.tipo==='consulta'&&PEND_ST.includes(a.status)&&(a.data<hoje||(a.data===hoje&&a.inicio+a.duracao<=nm)))
+    .sort((x,y)=>(x.data+pad(x.inicio)).localeCompare(y.data+pad(y.inicio)));
+}
+function openPendentes(){
+  const itens=pendentes().map(a=>{
+    const p=pOf(a.profissionalId),row=el('div',{class:'row',style:'grid-template-columns:auto minmax(0,1fr) auto'});
+    const marca=st=>()=>{store.set('agendamentos',a.id,clean(Object.assign({},a,{status:st})));row.remove();};
+    row.append(el('span',{class:'small',text:brDate(a.data)+' '+hhmm(a.inicio)}),el('b',{text:bName(a.beneficiarioId)+(p?' · '+p.nome:'')}),
+      el('span',{class:'checks'},el('button',{type:'button',class:'btn sm',onclick:marca('concluido')},'Atendido'),
+        el('button',{type:'button',class:'btn sm',onclick:marca('faltou')},'Faltou'),el('button',{type:'button',class:'btn sm',onclick:marca('cancelado')},'Desmarcou')));
+    return el('div',{class:'f w'},row);
+  });
+  openDlg('Sem situação final',itens.length?itens:[el('div',{class:'f w small',text:'Nenhuma consulta pendente.'})],
+    [el('span',{class:'sp'}),el('button',{type:'button',class:'btn pri',onclick:()=>dlg.close()},'Concluir')],()=>dlg.close());
 }
 
 /* ---------- nomes ---------- */
@@ -669,16 +694,26 @@ function endDrag(commit){
     if(d.type!=='mouse'&&!d.moved){const r=d.el.getBoundingClientRect();openCtx(cur,d.x0,Math.min(d.y0,r.bottom));}return;}
   pedirConfirmacaoMudanca(cur,next,d.resize);
 }
+function conflitoDe(a){
+  if(a.tipo!=='consulta'||!a.profissionalId)return null;
+  return [...S.agendamentos.values()].find(x=>x.id!==a.id&&x.tipo==='consulta'&&x.profissionalId===a.profissionalId&&x.data===a.data&&x.status!=='cancelado'&&x.inicio<a.inicio+a.duracao&&x.inicio+x.duracao>a.inicio)||null;
+}
 function pedirConfirmacaoMudanca(cur,next,resize){
   render();
   const quando=a=>brDate(a.data)+' das '+hhmm(a.inicio)+' às '+hhmm(a.inicio+a.duracao);
-  const p0=pOf(cur.profissionalId),p1=pOf(next.profissionalId);
+  const p0=pOf(cur.profissionalId),p1=pOf(next.profissionalId),err=errBox(),aviso=el('div',{class:'msg',hidden:true});
   const corpo=[el('div',{class:'f w',text:bName(cur.beneficiarioId)+(resize?' · duração de '+cur.duracao+' para '+next.duracao+' min':'')}),
     el('div',{class:'f w',text:'Antes: '+quando(cur)}),el('div',{class:'f w',text:'Depois: '+quando(next)})];
   if(cur.profissionalId!==next.profissionalId&&cur.tipo==='consulta')corpo.push(el('div',{class:'f w',text:'Profissional: '+(p0?p0.nome:'—')+' → '+(p1?p1.nome:'—')}));
-  openDlg(resize?'Confirmar nova duração':'Confirmar mudança de horário',corpo,
+  const checar=()=>{const hit=conflitoDe(next);
+    return hit?'Conflito: '+(p1?p1.nome:'este profissional')+' já tem '+bName(hit.beneficiarioId)+' das '+hhmm(hit.inicio)+' às '+hhmm(hit.inicio+hit.duracao)+'. Escolha outro horário.':null;};
+  const c0=checar();if(c0){err.textContent=c0;err.hidden=false;}
+  if(next.tipo==='consulta'&&p1&&p1.dias&&p1.dias.length&&!p1.dias.includes(parse(next.data).getDay())){
+    aviso.textContent=p1.nome+' não costuma atender neste dia da semana. Confirme se for intencional.';aviso.hidden=false;}
+  openDlg(resize?'Confirmar nova duração':'Confirmar mudança de horário',[...corpo,aviso,err],
     [el('span',{class:'sp'}),el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Cancelar'),el('button',{type:'submit',class:'btn pri'},'Confirmar')],
-    ()=>{store.set('agendamentos',cur.id,clean(next));dlg.close();toast(resize?'Duração: '+next.duracao+' min':'Movido para '+brDate(next.data)+' às '+hhmm(next.inicio));});
+    ()=>{const c=checar();if(c){err.textContent=c;err.hidden=false;return;}
+      store.set('agendamentos',cur.id,clean(next));dlg.close();toast(resize?'Duração: '+next.duracao+' min':'Movido para '+brDate(next.data)+' às '+hhmm(next.inicio));});
 }
 document.addEventListener('touchmove',e=>{if(drag&&drag.active)e.preventDefault();},{passive:false});
 
@@ -708,7 +743,7 @@ function calcStats(list){
   const c=list.filter(a=>a.tipo==='consulta'),k=list.filter(a=>a.tipo==='cesta');
   const done=c.filter(a=>a.status==='concluido').length,miss=c.filter(a=>a.status==='faltou').length,base=done+miss;
   return{total:c.length,done,miss,canc:c.filter(a=>a.status==='cancelado').length,rate:base?Math.round(miss/base*100):null,
-    cestas:k.filter(a=>a.status==='concluido').reduce((n,a)=>n+(a.qtd||1),0),cestasMiss:k.filter(a=>a.status==='faltou').length};
+    cestas:k.filter(a=>a.status==='concluido').reduce((n,a)=>n+(a.qtd||1),0),cestasMiss:k.filter(a=>a.status==='faltou').length,pend:c.filter(a=>PEND_ST.includes(a.status)&&a.data<todayISO()).length};
 }
 function statsLine(st){
   if(!st.total)return'Primeiro atendimento deste beneficiário.';
@@ -788,7 +823,7 @@ function openAg(src){
     pickBox.replaceChildren();loadHist();
     if(benefId){pickBox.append(el('div',{class:'chip'},el('b',{text:bName(benefId)}),el('button',{type:'button',class:'btn sm',onclick:()=>{benefId='';drawPick();$('agBusca').focus();}},'Trocar')));return;}
     const q=inp('agBusca','search','',{placeholder:'Digite o nome, CPF ou telefone'});const list=el('div',{class:'pick-list'});
-    const draw=()=>{const t=norm(q.value);const all=[...S.beneficiarios.values()].sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));
+    const draw=()=>{const t=norm(q.value);const all=[...S.beneficiarios.values()].filter(b=>!b.arquivado).sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));
       const hits=(t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')).includes(t)):all).slice(0,8);
       list.replaceChildren(...hits.map(b=>el('button',{type:'button',onclick:()=>{benefId=b.id;drawPick();}},b.nome,b.telefone?el('small',{text:b.telefone}):null)));
       if(q.value.trim()&&!all.some(b=>norm(b.nome)===t))list.append(el('button',{type:'button',onclick:async()=>{const id=store.newId('beneficiarios');
@@ -848,7 +883,7 @@ function openBenef(b,startTab,ctxAg){
         el('div',{class:'stats'},el('span',{class:'pill',text:st.total+' atendimentos'}),el('span',{class:'pill ok',text:st.done+' atendidos'}),
           el('span',{class:'pill '+(st.miss?'bad':''),text:st.miss+' faltas'}),el('span',{class:'pill',text:st.canc+' desmarcados'}),
           el('span',{class:'pill '+(st.rate>=30?'bad':st.rate>0?'warn':'ok'),text:st.rate==null?'Não comparecimento: sem dados':'Não comparecimento: '+st.rate+'%'}),
-          el('span',{class:'pill acc',text:st.cestas+' cestas entregues'}),st.cestasMiss?el('span',{class:'pill bad',text:st.cestasMiss+' cestas não retiradas'}):null),
+          el('span',{class:'pill acc',text:st.cestas+' cestas entregues'}),st.cestasMiss?el('span',{class:'pill bad',text:st.cestasMiss+' cestas não retiradas'}):null,st.pend?el('span',{class:'pill warn',text:st.pend+' sem situação final'}):null),
         el('div',{class:'small f w',text:'A taxa considera só atendimentos marcados como Atendido ou Faltou. Agendamentos passados que ficaram em outra situação não entram na conta.'}),
         el('div',{class:'stats'},wa,el('span',{class:'small',text:'Envia os horários desta semana.'})),
         el('div',{class:'hist'},list.length?list.slice(0,60).map(a=>{const p=pOf(a.profissionalId);
@@ -863,8 +898,8 @@ function openBenef(b,startTab,ctxAg){
     const who=sel('prProf',[['','Escolha o médico…']].concat(meds.map(p=>[p.id,p.nome+(p.especialidade?' · '+p.especialidade:'')])),ctxAg&&meds.some(p=>p.id===ctxAg.profissionalId)?ctxAg.profissionalId:'');
     const txt=el('textarea',{id:'prTxt',rows:5,placeholder:'Queixa, exame, conduta, prescrição, retorno…'});
     const listBox=el('div',{class:'panel'},el('div',{class:'small f w',text:'Carregando…'}));
-    const draw=notes=>{notes.sort((x,y)=>(y.quando||'').localeCompare(x.quando||''));
-      listBox.replaceChildren(...(notes.length?notes.map(n=>{const p=pOf(n.profissionalId),d=n.quando?new Date(n.quando):null;
+    const draw=notes=>{notes.sort((x,y)=>tsMs(y.quando)-tsMs(x.quando));
+      listBox.replaceChildren(...(notes.length?notes.map(n=>{const p=pOf(n.profissionalId),ms=tsMs(n.quando),d=ms?new Date(ms):null;
         return el('div',{class:'note'},el('header',{text:(d?d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'')+' · '+(p?p.nome+(p.especialidade?' ('+p.especialidade+')':''):'Profissional removido')}),el('p',{text:n.texto||''}));})
         :[el('div',{class:'small f w',text:'Nenhum apontamento registrado.'})]));};
     const load=()=>{if(db)db.collection('prontuarios').where('beneficiarioId','==',b.id).get().then(s=>draw(s.docs.map(d=>d.data())),()=>draw([]));
@@ -873,7 +908,7 @@ function openBenef(b,startTab,ctxAg){
       if(!who.value)return showErr('Escolha o médico que está registrando.');
       if(!txt.value.trim())return showErr('Escreva o apontamento.');
       $('dlgErr').hidden=true;add.disabled=true;
-      const rec={beneficiarioId:b.id,profissionalId:who.value,agendamentoId:(ctxAg&&ctxAg.id)||'',quando:new Date().toISOString(),texto:txt.value.trim(),autorId:uid};
+      const rec={beneficiarioId:b.id,profissionalId:who.value,agendamentoId:(ctxAg&&ctxAg.id)||'',quando:serverNow(),texto:txt.value.trim(),autorId:uid};
       const ok=await store.set('prontuarios',store.newId('prontuarios'),rec);add.disabled=false;
       if(ok){txt.value='';toast('Apontamento registrado.');load();}
     }},'Registrar apontamento');
@@ -882,7 +917,7 @@ function openBenef(b,startTab,ctxAg){
     load();
   }
   const body=[isNew?null:tabs,pCad,pHist,pPront,errBox()];
-  const foot=[isNew?null:delButton(()=>{store.del('beneficiarios',b.id);dlg.close();toast('Beneficiário excluído.');}),el('span',{class:'sp'}),
+  const foot=[isNew?null:el('button',{type:'button',class:'btn',onclick:()=>{store.set('beneficiarios',b.id,clean(Object.assign({},b,{arquivado:!b.arquivado})));dlg.close();toast(b.arquivado?'Beneficiário reativado.':'Beneficiário arquivado. O histórico continua salvo.');}},b.arquivado?'Reativar':'Arquivar'),isNew||!isAdmin?null:delButton(()=>{store.del('beneficiarios',b.id);dlg.close();toast('Beneficiário excluído.');}),el('span',{class:'sp'}),
     el('button',{type:'button',class:'btn',onclick:()=>dlg.close()},'Fechar'),el('button',{type:'submit',class:'btn pri'},'Salvar cadastro')];
   openDlg(isNew?'Novo beneficiário':b.nome,body,foot,()=>{
     if(!isNew)show('cad');
@@ -946,7 +981,7 @@ function openProf(p){
 /* ---------- listas ---------- */
 function idade(n){if(!n)return'';const d=parse(n),t=new Date();let a=t.getFullYear()-d.getFullYear();if(t<new Date(t.getFullYear(),d.getMonth(),d.getDate()))a--;return a+' anos';}
 function renderBenef(){
-  const t=norm(ui.search),all=[...S.beneficiarios.values()].sort((a,b)=>norm(a.nome).localeCompare(norm(b.nome)));
+  const t=norm(ui.search),all=[...S.beneficiarios.values()].filter(b=>ui.arq||!b.arquivado).sort((a,b)=>norm(a.nome).localeCompare(norm(b.nome)));
   const list=t?all.filter(b=>norm(b.nome+' '+(b.cpf||'')+' '+(b.telefone||'')+' '+(b.bairro||'')).includes(t)):all;
   $('bCount').textContent=all.length?(list.length===all.length?all.length+' cadastrados':list.length+' de '+all.length):'';
   const box=$('bList');
@@ -954,7 +989,7 @@ function renderBenef(){
   box.replaceChildren(...list.slice(0,400).map(b=>el('button',{class:'row',type:'button',onclick:()=>openBenef(b)},
     el('b',{text:b.nome}),el('span',{text:[b.telefone,idade(b.nascimento)].filter(Boolean).join(' · ')||'Sem telefone'}),
     el('span',{text:[b.bairro,(b.familia||1)+(b.familia>1?' pessoas na família':' pessoa na família')].filter(Boolean).join(' · ')}),
-    b.recebeCesta?el('span',{class:'pill acc',text:'Cesta básica'}):el('span'))));
+    b.arquivado?el('span',{class:'pill',text:'Arquivado'}):b.recebeCesta?el('span',{class:'pill acc',text:'Cesta básica'}):el('span'))));
   if(list.length>400)box.append(el('div',{class:'empty'},'Mostrando os 400 primeiros. Use a busca para encontrar os demais.'));
 }
 function renderProf(){
@@ -1008,6 +1043,7 @@ $('mDia').onclick=()=>{ui.mode='dia';render();};
 $('mSem').onclick=()=>{ui.mode='semana';render();};
 $('newAg').onclick=()=>{const n=new Date(),m=Math.min(END-SLOT,Math.max(START,Math.ceil((n.getHours()*60+n.getMinutes())/30)*30));newAt(ui.mode==='dia'?'':ui.date,m);};
 $('newB').onclick=()=>openBenef(null);
+$('bArq').onchange=e=>{ui.arq=e.target.checked;renderBenef();};
 $('cfgBtn').onclick=openCfg;
 $('newP').onclick=()=>openProf(null);
 $('newC').onclick=()=>openAg({tipo:'cesta',data:ui.date.slice(0,7)===todayISO().slice(0,7)?todayISO():ui.date.slice(0,7)+'-01',inicio:9*60,duracao:30,beneficiarioId:'',profissionalId:'',status:'agendado'});

@@ -12,18 +12,30 @@ service cloud.firestore {
       allow read: if logado() && (request.auth.uid == uid || admin());
       allow write: if admin();
     }
-    match /beneficiarios/{id} { allow read, write: if membro(); }
+    // Beneficiários: a recepção cadastra e arquiva; só a administração exclui.
+    match /beneficiarios/{id} {
+      allow read, create, update: if membro();
+      allow delete: if admin();
+    }
     match /profissionais/{id} { allow read, write: if membro(); }
     match /agendamentos/{id}  { allow read, write: if membro(); }
     match /config/{id} {
       allow read: if membro();
       allow write: if admin();
     }
-    // Prontuário: só equipe clínica e administração leem; cada apontamento é
-    // assinado com o usuário que o criou e não pode ser alterado nem apagado.
+    // Prontuário: só equipe clínica lê. Cada apontamento é criado pelo próprio
+    // autor, com horário do servidor, e não pode ser alterado nem apagado.
     match /prontuarios/{id} {
       allow read: if clinico();
-      allow create: if clinico() && request.resource.data.autorId == request.auth.uid;
+      allow create: if clinico()
+        && request.resource.data.keys().hasOnly(['beneficiarioId', 'profissionalId', 'agendamentoId', 'quando', 'texto', 'autorId'])
+        && request.resource.data.autorId == request.auth.uid
+        && request.resource.data.quando == request.time
+        && request.resource.data.beneficiarioId is string
+        && request.resource.data.profissionalId is string
+        && request.resource.data.texto is string
+        && request.resource.data.texto.size() > 0
+        && request.resource.data.texto.size() <= 5000;
       allow update, delete: if false;
     }
   }
