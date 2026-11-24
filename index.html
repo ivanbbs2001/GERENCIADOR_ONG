@@ -1220,6 +1220,19 @@ const BEN_INFO={
     passos:['Não há inscrição: a participação é automática para quem cumpre os critérios.','Manter o CadÚnico da família atualizado.','Manter a frequência de 80%: abaixo disso, o depósito do mês não é feito.','Conferir a situação na página oficial de consulta do Pé-de-Meia (MEC).'],
     onde:'Página oficial de consulta do Pé-de-Meia (MEC).'}
 };
+function textoBeneficios(keys,dest,benef,contato){
+  const ong=S.config.ong||'nossa ONG';
+  const partes=[];
+  if(contato)partes.push('Referente a '+benef+'.');
+  partes.push('Olá, '+(dest.split(/\s+/)[0]||'')+'! Aqui é da '+ong+'. Seguem as orientações sobre os benefícios:');
+  keys.forEach(k=>{const i=BEN_INFO[k];
+    partes.push('\n*'+i.nome+'*\nRequisitos:\n'+i.resumo.map(t=>'• '+t).join('\n')+
+      '\nDocumentos:\n'+i.docs.map(t=>'• '+t).join('\n')+
+      '\nPasso a passo:\n'+i.passos.map((t,n)=>(n+1)+'. '+t).join('\n')+
+      '\nOnde consultar: '+i.onde);});
+  partes.push('\nAs regras podem mudar. Em caso de dúvida, procure o CRAS da sua região.');
+  return partes.join('\n');
+}
 const benTip=el('div',{class:'ev-tip ben-tip',role:'tooltip',hidden:true});
 function mostraBenTip(row,k){
   const d=$('dlg');if(!benTip.isConnected)d.append(benTip);
@@ -1263,6 +1276,18 @@ function openBenef(b,startTab,ctxAg){
     return row;
   });
   const benBox=el('div',{class:'f w'},el('label',{text:'Benefícios que recebe (passe o mouse para ver os requisitos)'}),el('div',{class:'ben-grid'},...benRows));
+  const enviarWhats=()=>{
+    const sel=benCks.filter(([k,c])=>c.checked).map(([k])=>k);
+    if(!sel.length)return showErr('Marque pelo menos um benefício para enviar.');
+    const digits=(tel.value||'').replace(/\D/g,'').replace(/^0+/,'');
+    if(digits.length<10)return showErr('Informe o telefone com DDD para enviar pelo WhatsApp.');
+    const contato=!!(contCk.checked&&contNome.value.trim());
+    const dest=contato?contNome.value.trim():nome.value.trim();
+    const txt=textoBeneficios(sel,dest,nome.value.trim(),contato);
+    window.open('https://wa.me/'+(digits.length<=11?'55':'')+digits+'?text='+encodeURIComponent(txt),'_blank','noopener');
+  };
+  const enviarRow=el('div',{class:'f w'},el('button',{type:'button',class:'btn wa',onclick:enviarWhats},'ENVIAR NO WHATS'),
+    el('div',{class:'small',text:'Abre o WhatsApp com as instruções dos benefícios marcados, para você conferir e enviar.'}));
   const contCk=el('input',{type:'checkbox',id:'bTelContato'});contCk.checked=!!b.telefoneDeContato;
   const contNome=inp('bContNome','text',b.contatoNome,{placeholder:'Quem atende este telefone'});
   const contRel=inp('bContRel','text',b.contatoRelacao,{list:'relacoesContato',placeholder:'Ex.: mãe, filho(a), vizinho(a)'});
@@ -1307,7 +1332,7 @@ function openBenef(b,startTab,ctxAg){
     sec('Contato'),telRow,contRow,contBox,
     sec('Endereço'),field('Endereço',end,true),field('Bairro',bairro),
     sec('Família e vínculos'),field('Pessoas na família',fam),el('div',{class:'f w'},el('label',{text:'Mesma família de (opcional)'}),famBox),pVinc,
-    sec('Programa'),el('div',{class:'f w'},el('label',{class:'chk-row'},cesta,el('span',null,'Recebe cesta básica'))),benBox,
+    sec('Programa'),el('div',{class:'f w'},el('label',{class:'chk-row'},cesta,el('span',null,'Recebe cesta básica'))),benBox,enviarRow,
     sec('Observações'),field('Observações',obs,true));
   const pHist=el('div',{class:'panel',hidden:true},el('div',{class:'small f w',text:'Carregando…'}));
   const pPront=el('div',{class:'panel',hidden:true});
