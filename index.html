@@ -395,7 +395,7 @@ function avisoDesfazer(msg,voltar){
 /* ---------- estado e armazenamento ---------- */
 const S={beneficiarios:new Map(),profissionais:new Map(),agendamentos:new Map(),prontuarios:new Map(),config:{}};
 let canEdit=false,isAdmin=false,uid='',userEmail='';
-const ui={view:'agenda',date:todayISO(),mode:'semana',weekFilter:'todos',search:'',arq:false};
+const ui={view:'agenda',date:todayISO(),mode:'semana',weekFilter:'todos',dayFilter:'cesta',search:'',arq:false};
 let db=null,storeMode='loading',agUnsub=null,agWin='',drag=null,pendingRender=false,loaded={b:false,p:false,a:false};
 
 const store={
@@ -707,15 +707,14 @@ const colorClass=a=>a.tipo==='cesta'?'cc':'c'+(((pOf(a.profissionalId)||{}).cor)
 
 /* ---------- agenda ---------- */
 function dayColumns(){
-  const wd=parse(ui.date).getDay();
-  const busy=new Set();for(const a of S.agendamentos.values())if(a.data===ui.date&&a.tipo==='consulta')busy.add(a.profissionalId||'');
-  const cols=[{key:'cesta',title:'Cestas básicas',sub:'Entregas',cls:'cc',step:30}];
-  for(const p of sortedProfs()){
-    const works=p.ativo!==false&&(!p.dias||!p.dias.length||p.dias.includes(wd));
-    if(works||busy.has(p.id))cols.push({key:p.id,title:p.nome,sub:p.especialidade||'',cls:'c'+(p.cor||0),off:!works,step:durPadrao(p)<=15?15:30});
-  }
-  if(busy.has('')||[...busy].some(k=>k&&!S.profissionais.has(k)))cols.push({key:'',title:'Sem profissional',sub:'A definir',cls:'c0'});
-  return cols;
+  const wd=parse(ui.date).getDay(),key=ui.dayFilter??'cesta';
+  const cesta=[{key:'cesta',title:'Cestas básicas',sub:'Entregas',cls:'cc',step:30}];
+  if(key==='cesta')return cesta;
+  if(key===''){return [{key:'',title:'Sem profissional',sub:'A definir',cls:'c0',step:30}];}
+  const p=S.profissionais.get(key);
+  if(!p)return cesta;
+  const works=p.ativo!==false&&(!p.dias||!p.dias.length||p.dias.includes(wd));
+  return [{key:p.id,title:p.nome,sub:p.especialidade||'',cls:'c'+(p.cor||0),off:!works,step:durPadrao(p)<=15?15:30}];
 }
 function weekColumns(){
   const m=monday(ui.date),t=todayISO(),fp=pOf(ui.weekFilter),step=fp&&durPadrao(fp)<=15?15:30;
@@ -767,13 +766,16 @@ function renderAgenda(){
   const cols=ui.mode==='dia'?dayColumns():weekColumns();
   const m=monday(ui.date);
   if(ui.weekFilter!=='todos'&&ui.weekFilter!=='cesta'&&S.profissionais.size&&!S.profissionais.has(ui.weekFilter))ui.weekFilter='todos';
-  const sel=ui.mode==='semana'?ui.weekFilter:'';
+  if(ui.dayFilter&&ui.dayFilter!=='cesta'&&!S.profissionais.has(ui.dayFilter)&&ui.dayFilter!=='')ui.dayFilter='cesta';
+  const sel=ui.mode==='semana'?ui.weekFilter:ui.dayFilter;
   $('agTitle').textContent=ui.mode==='dia'?fmtDay(ui.date,{weekday:'long',day:'numeric',month:'long'}):
     `${fmtDay(m,{day:'numeric',month:'short'})} a ${fmtDay(addDays(m,6),{day:'numeric',month:'short',year:'numeric'})}`+
-    (sel==='cesta'?' · Cestas básicas':pOf(sel)?' · '+pOf(sel).nome:' · Todos os agendamentos');
+    (sel==='cesta'?' · Cestas básicas':sel===''?' · Sem profissional':pOf(sel)?' · '+pOf(sel).nome:' · Todos os agendamentos');
   const tab=(key,label,cls)=>el('button',{type:'button',class:'ptab '+cls,'aria-pressed':String(sel===key),
-    onclick:()=>{if(ui.mode==='semana'&&ui.weekFilter===key)ui.weekFilter='todos';else{ui.weekFilter=key;ui.mode='semana';}render();}},el('span',{class:'dot'}),label);
+    onclick:()=>{if(ui.mode==='dia'){ui.dayFilter=key;}else if(ui.weekFilter===key)ui.weekFilter='todos';else{ui.weekFilter=key;ui.mode='semana';}render();}},el('span',{class:'dot'}),label);
+  const semProf=ui.mode==='dia'&&[...S.agendamentos.values()].some(a=>a.data===ui.date&&a.tipo==='consulta'&&!S.profissionais.has(a.profissionalId));
   $('profTabs').replaceChildren(tab('cesta','Cestas básicas','cc'),
+    ...(semProf?[tab('','Sem profissional','c0')]:[]),
     ...sortedProfs().filter(p=>p.ativo!==false||p.id===sel).map(p=>tab(p.id,p.nome+(p.especialidade?' · '+p.especialidade:''),'c'+(p.cor||0))));
   $('dateJump').value=ui.date;
   $('mDia').setAttribute('aria-pressed',ui.mode==='dia');$('mSem').setAttribute('aria-pressed',ui.mode==='semana');
@@ -1296,7 +1298,7 @@ $('today').onclick=()=>setDate(todayISO());
 $('dateJump').onchange=e=>{if(e.target.value)setDate(e.target.value);};
 $('mDia').onclick=()=>{ui.mode='dia';render();};
 $('mSem').onclick=()=>{ui.mode='semana';render();};
-$('newAg').onclick=()=>{const n=new Date(),m=Math.min(END-SLOT,Math.max(START,Math.ceil((n.getHours()*60+n.getMinutes())/30)*30));newAt(ui.mode==='dia'?'':ui.date,m);};
+$('newAg').onclick=()=>{const n=new Date(),m=Math.min(END-SLOT,Math.max(START,Math.ceil((n.getHours()*60+n.getMinutes())/30)*30));newAt(ui.mode==='dia'?ui.dayFilter:ui.date,m);};
 $('newB').onclick=()=>openBenef(null);
 $('bArq').onchange=e=>{ui.arq=e.target.checked;renderBenef();};
 $('cfgBtn').onclick=openCfg;
