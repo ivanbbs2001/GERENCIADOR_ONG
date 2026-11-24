@@ -68,6 +68,9 @@ select,input[type=text],input[type=search],input[type=date],input[type=time],inp
 .bar select,.bar input{width:auto;max-width:100%}
 #dateJump{max-width:150px}
 
+.list table{width:100%;border-collapse:collapse;font-size:14px}
+.list th,.list td{padding:8px 6px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}
+.list th{color:var(--muted);font-weight:600;font-size:12px}
 /* Abas de profissionais: filtram a semana */
 .ptabs{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px;flex:none;max-height:124px;overflow:auto}
 .ptab{border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:6px 11px;font-weight:600;font-size:13px;white-space:nowrap;display:inline-flex;align-items:center}
@@ -206,7 +209,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
   .top .gear{padding:5px 8px;font-size:12px;flex:none}
   .status{order:5;flex:1 1 100%;margin:0;font-size:11px}
   .nav{order:9;position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:6px 8px;z-index:10;justify-content:space-around}
-  .nav a{padding:8px 6px;font-size:13px}
+  .nav a{padding:8px 2px;font-size:12px}
   body{padding-bottom:54px}
   .bar h2{width:100%;margin:0;font-size:16px;order:-1}
   .row{grid-template-columns:1fr auto}
@@ -248,6 +251,7 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
     <a href="#beneficiarios">Beneficiários</a>
     <a href="#profissionais">Profissionais</a>
     <a href="#cestas">Cestas</a>
+    <a href="#relatorios">Relatórios</a>
   </nav>
   <span class="status" id="status" role="status">Carregando…</span>
   <button class="gear" id="cfgBtn" type="button">Ajustes</button>
@@ -302,6 +306,14 @@ a.btn[aria-disabled="true"]{opacity:.5;pointer-events:none}
     </div>
     <div class="sum" id="cSum"></div>
     <div class="list" id="cList"></div>
+  </section>
+  <section class="view" id="v-relatorios" aria-label="Relatórios">
+    <div class="bar">
+      <h2>Relatórios</h2>
+      <input type="month" id="repMes" aria-label="Mês do relatório">
+      <button class="btn pri" id="repCsv">Baixar CSV</button>
+    </div>
+    <div class="list" id="repBox"></div>
   </section>
 </main>
 <div class="gate" id="gate" hidden>
@@ -549,7 +561,7 @@ function auditar(acao,col,id,antes,depois){
 }
 async function openAud(){
   const lista=el('div',{class:'f w'},el('div',{class:'small',text:'Carregando…'}));
-  openDlg('Auditoria · últimos 200 registros',[lista],[el('span',{class:'sp'}),el('button',{type:'button',class:'btn pri',onclick:()=>dlg.close()},'Fechar')],()=>dlg.close());
+  openDlg('Auditoria · últimos 200 registros',[lista],[el('button',{type:'button',class:'btn',onclick:baixarBackup},'Baixar backup'),el('span',{class:'sp'}),el('button',{type:'button',class:'btn pri',onclick:()=>dlg.close()},'Fechar')],()=>dlg.close());
   let docs;
   try{docs=db?(await db.collection('auditoria').orderBy('quando','desc').limit(200).get()).docs.map(d=>d.data()):AUD.slice(0,200);}
   catch(e){lista.replaceChildren(el('div',{class:'msg err',text:'Não foi possível carregar a auditoria. Verifique se sua conta é de administração.'}));return;}
@@ -562,6 +574,95 @@ async function openAud(){
     return el('div',{class:'note'},el('header',{text:(d?d.toLocaleString('pt-BR'):'agora')+' · '+(r.email||'(sem e-mail)')+' ('+(PAPEIS[r.papel]||r.papel||'—')+')'}),
       el('p',{text:(acaoTxt[r.acao]||r.acao)+' '+(nomeCol[r.colecao]||r.colecao)+' '+(r.docId||'')+(mudou?' — '+mudou:(r.campos&&r.campos.length?' — campos: '+r.campos.join(', '):''))}));
   }):[el('div',{class:'small',text:'Nenhum registro ainda.'})]));
+}
+
+/* ---------- famílias, relatórios, backup ---------- */
+const familiaDe=b=>b?(b.familiaId||b.id):'';
+const familiaOf=a=>familiaDe(S.beneficiarios.get(a.beneficiarioId))||a.beneficiarioId;
+function famDup(list){
+  const c={};list.filter(a=>a.status!=='cancelado').forEach(a=>{const f=familiaOf(a);c[f]=(c[f]||0)+1;});
+  const n=Object.values(c).filter(v=>v>1).length;
+  return n?el('span',{class:'pill bad',text:n+(n>1?' famílias com mais de uma entrega':' família com mais de uma entrega')+' no mês'}):null;
+}
+let repTok=0;
+async function agendamentosDoMes(ym){
+  const a=ym+'-01',b=ym+'-31';
+  if(db){const s=await db.collection('agendamentos').where('data','>=',a).where('data','<=',b).get();return s.docs.map(d=>Object.assign({},d.data(),{id:d.id}));}
+  return [...S.agendamentos.values()].filter(x=>x.data>=a&&x.data<=b);
+}
+const pct=(f,b)=>b?Math.round(f/b*100):null;
+function calcRel(lista,ym){
+  const cons=lista.filter(a=>a.tipo==='consulta'&&a.status!=='cancelado');
+  const ces=lista.filter(a=>a.tipo==='cesta'&&a.status!=='cancelado');
+  const real=cons.filter(a=>a.status==='concluido').length,falta=cons.filter(a=>a.status==='faltou').length;
+  const agrupa=(lst,chave,nome)=>{const m={};for(const a of lst){const k=chave(a);const o=m[k]||(m[k]={nome:nome(a),agend:0,real:0,falta:0});
+      o.agend++;if(a.status==='concluido')o.real++;else if(a.status==='faltou')o.falta++;}
+    return Object.values(m).map(o=>Object.assign(o,{taxa:pct(o.falta,o.real+o.falta)})).sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));};
+  const espDe=a=>(pOf(a.profissionalId)||{}).especialidade||'Sem especialidade';
+  return{ym,consultas:cons.length,real,falta,taxa:pct(falta,real+falta),
+    pend:cons.filter(a=>PEND_ST.includes(a.status)&&a.data<todayISO()).length,
+    cestasEnt:ces.filter(a=>a.status==='concluido').reduce((n,a)=>n+(a.qtd||1),0),
+    familias:new Set(ces.filter(a=>a.status==='concluido').map(familiaOf)).size,
+    benefs:new Set(cons.filter(a=>a.status==='concluido').map(a=>a.beneficiarioId)).size,
+    porEsp:agrupa(cons,espDe,espDe),
+    porProf:agrupa(cons,a=>a.profissionalId||'',a=>{const p=pOf(a.profissionalId);return p?p.nome:'Sem profissional';})};
+}
+async function renderRel(){
+  const ym=ui.mes||ui.date.slice(0,7);ui.mes=ym;$('repMes').value=ym;
+  const box=$('repBox'),tok=++repTok;
+  box.replaceChildren(el('div',{class:'empty',text:'Carregando…'}));
+  let lista;
+  try{lista=await agendamentosDoMes(ym);}
+  catch(e){if(tok===repTok)box.replaceChildren(el('div',{class:'empty',text:'Não foi possível carregar o mês. Verifique a conexão.'}));return;}
+  if(tok!==repTok)return;
+  const r=calcRel(lista,ym);ui.rel=r;
+  const tab=(cab,linhas)=>el('div',{style:'overflow-x:auto'},el('table',null,el('thead',null,el('tr',null,cab.map(c=>el('th',{text:c})))),
+    el('tbody',null,linhas.map(l=>el('tr',null,l.map(c=>el('td',{text:c==null?'—':String(c)})))))));
+  const linhasOf=lst=>lst.map(o=>[o.nome,o.agend,o.real,o.falta,o.taxa==null?'—':o.taxa+'%']);
+  const cab=['Agendados','Realizados','Faltas','Não comparecimento'];
+  box.replaceChildren(
+    el('div',{class:'sum'},el('span',{class:'pill',text:r.consultas+' atendimentos'}),el('span',{class:'pill ok',text:r.real+' realizados'}),
+      el('span',{class:'pill bad',text:r.falta+' faltas'}),
+      el('span',{class:'pill '+(r.taxa>=30?'bad':r.taxa>0?'warn':'ok'),text:'Não comparecimento: '+(r.taxa==null?'sem dados':r.taxa+'%')}),
+      el('span',{class:'pill acc',text:r.cestasEnt+' cestas · '+r.familias+' famílias'}),el('span',{class:'pill',text:r.benefs+' beneficiários atendidos'}),
+      r.pend?el('span',{class:'pill warn',text:r.pend+' sem situação final'}):null),
+    el('div',{class:'day-h',text:'Por especialidade · '+fmtDay(ym+'-01',{month:'long',year:'numeric'})}),
+    tab(['Especialidade',...cab],r.porEsp.map(o=>[o.nome,...linhasOf([o]).map(x=>x).slice(1)])),
+    el('div',{class:'day-h',text:'Por profissional'}),
+    tab(['Profissional',...cab],linhasOf(r.porProf).map(x=>x)),
+    el('p',{class:'small',text:'Cancelados e desmarcados ficam fora das contagens. Cestas entregues = cestas com situação Entregue no mês.'}));
+}
+$('repMes').onchange=e=>{if(e.target.value){ui.mes=e.target.value;renderRel();}};
+$('repCsv').onclick=()=>{if(ui.rel)baixar('relatorio-'+ui.rel.ym+'.csv',csvRel(ui.rel),'text/csv;charset=utf-8');};
+function baixar(nome,conteudo,tipo){
+  const a=document.createElement('a'),url=URL.createObjectURL(new Blob([conteudo],{type:tipo}));
+  a.href=url;a.download=nome;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+function csvRel(r){
+  const c=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';const L=[];
+  L.push(['Relatório '+r.ym]);
+  L.push(['Atendimentos',r.consultas,'Realizados',r.real,'Faltas',r.falta,'Não comparecimento',r.taxa==null?'':r.taxa+'%','Sem situação final',r.pend]);
+  L.push(['Cestas entregues',r.cestasEnt,'Famílias atendidas',r.familias,'Beneficiários atendidos',r.benefs]);
+  L.push([]);L.push(['Especialidade','Agendados','Realizados','Faltas','Não comparecimento']);
+  r.porEsp.forEach(o=>L.push([o.nome,o.agend,o.real,o.falta,o.taxa==null?'':o.taxa+'%']));
+  L.push([]);L.push(['Profissional','Agendados','Realizados','Faltas','Não comparecimento']);
+  r.porProf.forEach(o=>L.push([o.nome,o.agend,o.real,o.falta,o.taxa==null?'':o.taxa+'%']));
+  return '﻿'+L.map(l=>l.map(c).join(';')).join('\r\n');
+}
+const plain=v=>v&&v.toDate?v.toDate().toISOString():Array.isArray(v)?v.map(plain):(v&&typeof v==='object')?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,plain(x)])):v;
+async function baixarBackup(){
+  const cols=['beneficiarios','profissionais','agendamentos','prontuarios','usuarios'];
+  const out={gerado:new Date().toISOString(),gerado_por:userEmail||'',colecoes:{}};
+  try{
+    for(const c of cols){
+      if(db){const s=await db.collection(c).get();out.colecoes[c]=s.docs.map(d=>plain(Object.assign({id:d.id},d.data())));}
+      else out.colecoes[c]=S[c]?[...S[c].values()].map(plain):[];
+    }
+    out.config=plain(S.config||{});
+  }catch(e){toast('Não foi possível gerar o backup. Verifique a conexão.');return;}
+  if(db)db.collection('auditoria').add({uid:uid||'',email:userEmail||'',papel:papel||'admin',acao:'exportar',colecao:'todas',docId:'backup',campos:[],valores:{},quando:serverNow()}).catch(()=>{});
+  baixar('backup-agenda-'+todayISO()+'.json',JSON.stringify(out,null,2),'application/json');
+  toast('Backup gerado. Guarde o arquivo em local seguro.');
 }
 
 /* ---------- nomes ---------- */
@@ -907,11 +1008,17 @@ function openAg(src){
       const p=pOf(prof.value),wd=parse(data.value).getDay();
       if(!msg&&p&&p.dias&&p.dias.length&&!p.dias.includes(wd))msg=`${p.nome} não costuma atender neste dia da semana.`;
     }
+    if(cesta&&benefId&&!msg){
+      const bb=S.beneficiarios.get(benefId),mes=(data.value||a.data||'').slice(0,7),fam=familiaDe(bb)||benefId;
+      if(bb&&!bb.recebeCesta)msg='Este beneficiário não está marcado como recebendo cesta básica (cadastro, Programa).';
+      const dup=[...S.agendamentos.values()].find(x=>x.id!==a.id&&x.tipo==='cesta'&&x.status!=='cancelado'&&x.data.slice(0,7)===mes&&familiaOf(x)===fam);
+      if(!msg&&dup)msg='A família já tem entrega neste mês ('+brDate(dup.data)+', '+bName(dup.beneficiarioId)+'). Confirme se for intencional.';
+    }
     warn.textContent=msg;warn.hidden=!msg;
   }
   const wa=isNew?null:waButton();
   function loadHist(){
-    histLine.textContent='';if(!benefId)return;const id=benefId;
+    histLine.textContent='';sync();if(!benefId)return;const id=benefId;
     fetchHist(id).then(list=>{if(id!==benefId)return;histLine.textContent=statsLine(calcStats(list.filter(x=>x.id!==a.id)));
       if(wa)setWa(wa,S.beneficiarios.get(id),list,data.value||a.data);});
   }
@@ -960,7 +1067,10 @@ function openBenef(b,startTab,ctxAg){
     nasc=inp('bNasc','date',b.nascimento),tel=inp('bTel','tel',b.telefone,{placeholder:'(00) 00000-0000'}),end=inp('bEnd','text',b.endereco),bairro=inp('bBairro','text',b.bairro),
     fam=inp('bFam','number',b.familia||1,{min:1,max:30,inputmode:'numeric'}),obs=el('textarea',{id:'bObs',rows:2});obs.value=b.obs||'';
   const cesta=el('input',{type:'checkbox',id:'bCesta'});cesta.checked=!!b.recebeCesta;
-  const pCad=el('div',{class:'panel'},field('Nome completo',nome,true),field('CPF',cpf),field('Data de nascimento',nasc),field('Telefone (com DDD)',tel),field('Pessoas na família',fam),
+  const outros=[...S.beneficiarios.values()].filter(x=>x.id!==b.id&&!x.arquivado).sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));
+  const famSel=el('select',{id:'bFamSel'},[el('option',{value:''},'Família própria'),...outros.map(x=>el('option',{value:x.id},x.nome+(x.familiaId&&x.familiaId!==x.id?' (já em família)':'')))]);
+  famSel.value=(b.familiaId&&b.familiaId!==b.id)?((outros.find(x=>x.familiaId===b.familiaId)||{}).id||''):'';
+  const pCad=el('div',{class:'panel'},field('Nome completo',nome,true),field('CPF',cpf),field('Data de nascimento',nasc),field('Telefone (com DDD)',tel),field('Pessoas na família',fam),field('Mesma família de (opcional)',famSel,true),
     field('Endereço',end,true),field('Bairro',bairro),el('div',{class:'f'},el('label',{text:'Programa'}),el('div',{class:'checks'},el('label',null,cesta,'Recebe cesta básica'))),
     field('Observações',obs,true));
   const pHist=el('div',{class:'panel',hidden:true},el('div',{class:'small f w',text:'Carregando…'}));
@@ -1024,7 +1134,8 @@ function openBenef(b,startTab,ctxAg){
     const rec={nome:nome.value.trim(),cpf:cpf.value.trim(),nascimento:nasc.value,telefone:tel.value.trim(),endereco:end.value.trim(),bairro:bairro.value.trim(),
       familia:Math.max(1,Number(fam.value)||1),recebeCesta:cesta.checked,obs:obs.value.trim()};
     if(b.exemplo)rec.exemplo=true;
-    store.set('beneficiarios',b.id||store.newId('beneficiarios'),rec);dlg.close();toast('Beneficiário salvo.');
+    const bid=b.id||store.newId('beneficiarios'),ref=famSel.value?S.beneficiarios.get(famSel.value):null;rec.familiaId=ref?(ref.familiaId||ref.id):bid;
+    store.set('beneficiarios',bid,rec);dlg.close();toast('Beneficiário salvo.');
   });
   show(isNew?'cad':(startTab||'cad'));
   if(isNew)nome.focus();
@@ -1105,7 +1216,7 @@ function renderCestas(){
   const q=f=>list.filter(f).reduce((n,a)=>n+(a.qtd||1),0);
   $('cSum').replaceChildren(el('span',{class:'pill ok',text:q(a=>a.status==='concluido')+' entregues'}),
     el('span',{class:'pill warn',text:q(a=>a.status==='agendado'||a.status==='confirmado')+' a entregar'}),
-    el('span',{class:'pill bad',text:q(a=>a.status==='faltou')+' não retiradas'}));
+    el('span',{class:'pill bad',text:q(a=>a.status==='faltou')+' não retiradas'}),famDup(list));
   const box=$('cList');
   if(!list.length){box.replaceChildren(el('div',{class:'empty'},el('h3',{text:'Nenhuma entrega neste mês'}),'Agende entregas por aqui ou clicando na coluna “Cestas básicas” da agenda.'));return;}
   const nodes=[];let last='';
@@ -1126,10 +1237,10 @@ function render(){
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+ui.view));
   document.querySelectorAll('.nav a').forEach(a=>{if(a.getAttribute('href')==='#'+ui.view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
   renderBanners();
-  if(ui.view==='agenda')renderAgenda();else if(ui.view==='beneficiarios')renderBenef();else if(ui.view==='profissionais')renderProf();else renderCestas();
+  if(ui.view==='agenda')renderAgenda();else if(ui.view==='beneficiarios')renderBenef();else if(ui.view==='profissionais')renderProf();else if(ui.view==='relatorios')renderRel();else renderCestas();
 }
 function setDate(d){ui.date=d;subscribeAg();render();}
-function route(){const h=location.hash.slice(1);ui.view=['agenda','beneficiarios','profissionais','cestas'].includes(h)?h:'agenda';render();}
+function route(){const h=location.hash.slice(1);ui.view=['agenda','beneficiarios','profissionais','cestas','relatorios'].includes(h)?h:'agenda';render();}
 window.addEventListener('hashchange',route);
 $('prev').onclick=()=>setDate(addDays(ui.date,ui.mode==='dia'?-1:-7));
 $('next').onclick=()=>setDate(addDays(ui.date,ui.mode==='dia'?1:7));

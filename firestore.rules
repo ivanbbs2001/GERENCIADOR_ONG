@@ -33,7 +33,7 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.papel == papel()
         && request.resource.data.quando == request.time
-        && request.resource.data.acao in ['criar', 'alterar', 'excluir'];
+        && request.resource.data.acao in ['criar', 'alterar', 'excluir', 'exportar'];
       allow update, delete: if false;
     }
     match /prontuarios/{id} {
