@@ -185,6 +185,12 @@ dialog::backdrop{background:rgb(8 20 18 / .5)}
 .hist div{align-items:center;flex-wrap:wrap}
 .hist .pill{align-self:center;width:max-content;white-space:nowrap}
 .panel{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:0}
+.fsec{grid-column:1/-1;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-top:10px;padding-top:12px;border-top:1px solid var(--line-soft)}
+.fsec:first-child{margin-top:0;padding-top:0;border-top:0}
+.chk-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);cursor:pointer;margin:0;font-size:14px;font-weight:600}
+.chk-row small{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:2px}
+.chk-row input{width:18px;height:18px;flex:0 0 18px;margin:0}
+.contato-box{background:var(--surface-2);padding:12px;border:1px solid var(--line);border-radius:8px}
 .tabs{grid-column:1/-1;display:flex;gap:4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .tabs button{border:0;background:transparent;padding:8px 12px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
 .tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
@@ -1138,10 +1144,11 @@ function openBenef(b,startTab,ctxAg){
   const contNome=inp('bContNome','text',b.contatoNome,{placeholder:'Quem atende este telefone'});
   const contRel=inp('bContRel','text',b.contatoRelacao,{list:'relacoesContato',placeholder:'Ex.: mãe, filho(a), vizinho(a)'});
   const relOpts=el('datalist',{id:'relacoesContato'},['Mãe','Pai','Filho(a)','Cônjuge','Irmão(ã)','Neto(a)','Vizinho(a)','Responsável legal','Outro'].map(v=>el('option',{value:v})));
-  const contBox=el('div',{class:'panel',hidden:!contCk.checked},relOpts,field('Nome do contato',contNome,true),field('Relação com o beneficiário',contRel,true));
+  const contBox=el('div',{class:'panel contato-box',hidden:!contCk.checked},relOpts,field('Nome do contato',contNome,true),field('Relação com o beneficiário',contRel,true));
   contCk.addEventListener('change',()=>{contBox.hidden=!contCk.checked;});
-  const telRow=el('div',{class:'f'},el('label',{for:'bTel',text:'Telefone (com DDD)'}),tel,
-    el('label',{class:'checks',style:'margin-top:6px'},contCk,' Telefone de contato (o beneficiário não tem)'));
+  const telRow=field('Telefone (com DDD)',tel);
+  const contRow=el('label',{class:'chk-row'},contCk,el('span',null,'Telefone de contato',el('small',{text:'O beneficiário não tem telefone; o número é de familiar ou responsável'})));
+  const sec=t=>el('div',{class:'fsec',text:t});
   const outros=[...S.beneficiarios.values()].filter(x=>x.id!==b.id&&!x.arquivado).sort((x,y)=>norm(x.nome).localeCompare(norm(y.nome)));
   // busca por nome (digitar e escolher), usada para família e vínculos
   const buscaBenef=(getList,onPick,placeholder)=>{
@@ -1172,9 +1179,13 @@ function openBenef(b,startTab,ctxAg){
   drawVinc();
   const pVinc=el('div',{class:'f w'},el('label',{text:'Vínculos com outros beneficiários'}),vincSearch,vincBox,
     el('div',{class:'small',text:'Use para pessoas que podem receber cesta juntas ou com pouca diferença de datas (ex.: mesma casa, parentes). Ao agendar uma cesta, o sistema avisa se algum vinculado tiver entrega em menos de '+JANELA_VINC+' dias.'}));
-  const pCad=el('div',{class:'panel'},field('Nome completo',nome,true),field('CPF',cpf),field('Data de nascimento',nasc),telRow,contBox,field('Pessoas na família',fam),el('div',{class:'f w'},el('label',{text:'Mesma família de (opcional)'}),famBox),
-    field('Endereço',end,true),field('Bairro',bairro),el('div',{class:'f'},el('label',{text:'Programa'}),el('div',{class:'checks'},el('label',null,cesta,'Recebe cesta básica'))),
-    pVinc,field('Observações',obs,true));
+  const pCad=el('div',{class:'panel form-benef'},
+    sec('Identificação'),field('Nome completo',nome,true),field('CPF',cpf),field('Data de nascimento',nasc),
+    sec('Contato'),telRow,contRow,contBox,
+    sec('Endereço'),field('Endereço',end,true),field('Bairro',bairro),
+    sec('Família e vínculos'),field('Pessoas na família',fam),el('div',{class:'f w'},el('label',{text:'Mesma família de (opcional)'}),famBox),pVinc,
+    sec('Programa'),el('div',{class:'f w'},el('label',{class:'chk-row'},cesta,el('span',null,'Recebe cesta básica'))),
+    sec('Observações'),field('Observações',obs,true));
   const pHist=el('div',{class:'panel',hidden:true},el('div',{class:'small f w',text:'Carregando…'}));
   const pPront=el('div',{class:'panel',hidden:true});
   const panels={cad:pCad,hist:pHist,pront:pPront},tabs=el('div',{class:'tabs',role:'tablist'});
